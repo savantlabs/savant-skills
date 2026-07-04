@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "type": "blend",
+  "regions": ["T1_N_T2", "T1", "T2", "T1_U_T2"],
+  "joiners": ["and", "or"]
+}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "type": "split",
+  "modes": ["rows", "columns"],
+  "configSchema": {
+    "required": ["mode", "inputField", "separator"],
+    "nonEmptyString": ["inputField", "separator"],
+    "bool": ["trim", "keepInputField"],
+    "object": ["extra"]
+  }
+}

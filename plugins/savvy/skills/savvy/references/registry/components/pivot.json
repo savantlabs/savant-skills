@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "type": "pivot",
+  "aggregationCalcs": [
+    "ANY",
+    "COUNT",
+    "NUNIQUE",
+    "MIN",
+    "MAX",
+    "AVG",
+    "SUM",
+    "STDDEV",
+    "VAR",
+    "MEDIAN",
+    "JOIN_STR",
+    "JOIN_STR_DISTINCT"
+  ]
+}

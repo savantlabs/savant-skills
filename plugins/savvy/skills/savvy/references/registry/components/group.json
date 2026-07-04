@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "group",
+  "configSchema": {
+    "required": ["width", "height"],
+    "positiveNumber": ["width", "height"],
+    "nonEmptyString": ["color"]
+  }
+}

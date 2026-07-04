@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "type": "fuzzy_match",
+  "configSchema": {
+    "required": ["lhsKey", "rhsKey"],
+    "nonEmptyString": ["lhsKey", "rhsKey"],
+    "bool": ["showDemoProvider"]
+  }
+}

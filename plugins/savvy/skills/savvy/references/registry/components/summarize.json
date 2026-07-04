@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "type": "summarize",
+  "calcs": {
+    "SUM": {"argType": "field", "numericInput": true},
+    "COUNT": {"argTypes": ["row", "field"], "outputType": "integer"},
+    "MAX": {"argType": "field"},
+    "MEDIAN": {"argType": "field", "numericInput": true},
+    "MODE": {"argType": "field"},
+    "FIRST": {"argType": "field", "orderSensitive": true},
+    "NUNIQUE": {"argType": "field", "outputType": "integer"},
+    "MIN": {"argType": "field"},
+    "JOIN_STR_DISTINCT": {"argType": "field", "outputType": "string"},
+    "AVG": {"argType": "field", "numericInput": true},
+    "JOIN_STR": {"argType": "field", "outputType": "string"},
+    "LAST": {"argType": "field", "orderSensitive": true},
+    "STDDEV": {"argType": "field", "numericInput": true},
+    "VAR": {"argType": "field", "numericInput": true}
+  },
+  "unsupportedCalcs": ["COUNT DISTINCT", "CONCAT", "CONCAT DISTINCT", "JOIN_DISTINCT"]
+}

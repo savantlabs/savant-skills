@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "common": {
+    "lookupOperators": "expression-common.json"
+  },
+  "components": {
+    "adapter": "components/adapter.json",
+    "apiService": "components/apiService.json",
+    "blend": "components/blend.json",
+    "deduplicate": "components/deduplicate.json",
+    "destination": "components/destination.json",
+    "edit": "components/edit.json",
+    "explode": "components/explode.json",
+    "filter": "components/filter.json",
+    "format": "components/format.json",
+    "fuzzy_match": "components/fuzzy_match.json",
+    "gen_ai": "components/gen_ai.json",
+    "group": "components/group.json",
+    "hierarchy": "components/hierarchy.json",
+    "json": "components/json.json",
+    "multi_stack": "components/multi_stack.json",
+    "notes": "components/notes.json",
+    "outlet": "components/outlet.json",
+    "pdfilter": "components/pdfilter.json",
+    "pdsummarize": "components/pdsummarize.json",
+    "pivot": "components/pivot.json",
+    "rollup": "components/rollup.json",
+    "sample": "components/sample.json",
+    "search_replace": "components/search_replace.json",
+    "service": "components/service.json",
+    "source": "components/source.json",
+    "split": "components/split.json",
+    "summarize": "components/summarize.json",
+    "text": "components/text.json",
+    "unpivot": "components/unpivot.json",
+    "vision": "components/vision.json",
+    "xml": "components/xml.json"
+  },
+  "legacyAliases": {
+    "join": "blend",
+    "stack": "multi_stack",
+    "transform": "edit"
+  },
+  "unsupportedNodeTypes": ["subtract"]
+}

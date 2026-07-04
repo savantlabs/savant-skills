@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "json",
+  "modes": ["flatten", "explode"],
+  "configSchema": {
+    "required": ["mode", "inputField"],
+    "nonEmptyString": ["inputField"],
+    "bool": ["keepInputField"]
+  }
+}

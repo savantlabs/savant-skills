@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "apiService",
+  "serviceTypes": ["APIService"],
+  "apiMethods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  "periods": ["SECOND", "MINUTE", "HOUR", "DAY"],
+  "resultFormats": ["RAW_STRING", "JSON"]
+}

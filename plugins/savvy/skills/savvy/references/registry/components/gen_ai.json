@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "type": "gen_ai",
+  "modes": ["BATCH"],
+  "serviceTypes": ["LLMService"],
+  "configSchema": {
+    "required": ["mode", "prompt", "inputFields", "serviceType", "providerId"],
+    "enum": {
+      "mode": ["BATCH"],
+      "serviceType": ["LLMService"]
+    },
+    "nonEmptyString": ["prompt", "providerId"],
+    "nonEmptyList": ["inputFields"],
+    "positiveIntOrNumericString": ["rowLimit"]
+  }
+}

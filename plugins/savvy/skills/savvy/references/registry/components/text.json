@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "text",
+  "configSchema": {
+    "positiveNumber": ["width", "height", "minWidth", "minHeight", "currentHeight"],
+    "bool": ["bold", "italic", "underline", "strikethrough", "isInitialized"]
+  }
+}

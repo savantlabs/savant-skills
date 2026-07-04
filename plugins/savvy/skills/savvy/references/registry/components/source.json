@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "type": "source",
+  "profileEvidenceConnectorTypes": ["csv", "excel", "xlsx", "xls", "file", "spreadsheet"]
+}

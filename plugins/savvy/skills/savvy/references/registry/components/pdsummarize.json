@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "type": "pdsummarize",
+  "calcs": {
+    "SUM": {},
+    "COUNT": {},
+    "NUNIQUE": {},
+    "MIN": {},
+    "MAX": {},
+    "AVG": {}
+  }
+}

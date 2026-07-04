@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "notes",
+  "configSchema": {
+    "nonEmptyString": ["text"],
+    "positiveNumber": ["width", "height"]
+  }
+}

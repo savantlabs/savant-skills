@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "type": "hierarchy",
+  "calcs": {
+    "SUM": {"argType": "field", "numericInput": true},
+    "COUNT": {"argTypes": ["row", "field"], "outputType": "integer"},
+    "NUNIQUE": {"argType": "field", "outputType": "integer"},
+    "MIN": {"argType": "field"},
+    "MAX": {"argType": "field"},
+    "AVG": {"argType": "field", "numericInput": true},
+    "JOIN_STR": {"argType": "field", "outputType": "string"},
+    "JOIN_STR_DISTINCT": {"argType": "field", "outputType": "string"},
+    "MEDIAN": {"argType": "field", "numericInput": true},
+    "STDDEV": {"argType": "field", "numericInput": true},
+    "VAR": {"argType": "field", "numericInput": true}
+  },
+  "configSchema": {
+    "required": ["idField", "parentIdField", "aggs"],
+    "nonEmptyString": ["idField", "parentIdField"],
+    "list": ["aggs"]
+  }
+}
