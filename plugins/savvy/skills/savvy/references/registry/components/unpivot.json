@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "unpivot",
+  "modes": ["keep", "unpivot"],
+  "configSchema": {
+    "required": ["mode", "nameField", "valueField", "selectedFields"],
+    "nonEmptyString": ["nameField", "valueField"],
+    "list": ["selectedFields"]
+  }
+}

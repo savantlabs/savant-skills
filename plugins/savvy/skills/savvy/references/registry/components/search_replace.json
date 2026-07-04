@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "type": "search_replace",
+  "configSchema": {
+    "list": ["rules", "fields"],
+    "bool": ["caseSensitive", "wholeWord"]
+  }
+}

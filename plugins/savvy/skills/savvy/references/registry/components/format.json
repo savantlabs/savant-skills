@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "type": "format",
+  "configSchema": {
+    "list": ["steps"],
+    "object": ["extra", "sort"],
+    "bool": ["replace", "enableFieldReordering"],
+    "positiveInt": ["replaceNamesWithRow"]
+  },
+  "stepActions": ["hide", "change_type", "rename", "fill"],
+  "matchers": ["contain", "end_with", "start_with", "is_empty"],
+  "changeNameActions": ["start_with", "end_with", "replace"],
+  "dataTypes": ["string", "integer", "number", "date", "datetime", "boolean"],
+  "sortDirections": ["asc", "dsc"]
+}

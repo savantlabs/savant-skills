@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "type": "adapter",
+  "configSchema": {
+    "required": ["specs"],
+    "list": ["specs"],
+    "bool": ["passthroughUnmapped"]
+  },
+  "specDataTypes": ["string", "integer", "number", "date", "datetime", "boolean"],
+  "specSchema": {
+    "required": ["name", "dataType"],
+    "optional": ["mappedFrom", "required"],
+    "bool": ["required"]
+  }
+}

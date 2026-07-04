@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "type": "xml",
+  "modes": ["SELECT", "EXTRACT", "TO_JSON"],
+  "configSchema": {
+    "required": ["mode", "inputField"],
+    "nonEmptyString": ["inputField", "path"],
+    "bool": ["unwrapTag", "processNs"]
+  },
+  "modeRequiredConfig": {
+    "SELECT": ["path"]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "type": "destination",
+  "modes": ["create", "update"],
+  "subsequentModes": ["replace", "append", "upsert", "groupReplace", "update"],
+  "configSchema": {
+    "enum": {
+      "mode": ["create", "update"],
+      "subsequentMode": ["replace", "append", "upsert", "groupReplace", "update"]
+    },
+    "list": ["sortConfig", "matchKeys"],
+    "object": ["slackConfig", "emailConfig", "fileSystemConfig"],
+    "nativeCsvDestinationRequiredShape": {
+      "required": ["id", "name", "type", "connector", "mode"],
+      "type": ["csv"],
+      "connector": ["csv"],
+      "mode": ["update"],
+      "forbidden": ["fileSystemConfig"]
+    },
+    "fileSystemDestinationRequiredShape": {
+      "builtToday": ["onedrive", "googledrive"],
+      "connector": ["onedrive", "googledrive", "sharepoint", "s3", "gcs", "box", "sftp"],
+      "fileSystemConfig": {
+        "required": ["folderLink", "fileNameMode", "fileType", "subsequentMode", "flatFileConfig"],
+        "fileNameMode": ["static", "field"],
+        "fileType": ["CSV", "EXCEL"],
+        "subsequentMode": ["replace", "append"],
+        "folderLink": "Target folder URL in the connected system (SharePoint share URL for OneDrive, drive.google.com folder URL for Google Drive). Environment binding supplied by the user; never invented.",
+        "fileNameRequiredWhen": "fileNameMode=static",
+        "excel": {
+          "note": "EXCEL writes a workbook. One tab (tabNameMode=static + tabName) or a tab per field value (tabNameMode=field + tabNameField). topLeftCell and formatFromTemplate are optional.",
+          "tabNameMode": ["static", "field"],
+          "tabNameRequiredWhen": "tabNameMode=static",
+          "formatFromTemplate": "boolean"
+        },
+        "optionalModePairs": {
+          "fileNameMode=field": "fileNameField",
+          "subFolderNameMode=field": "subFolderNameField",
+          "tabNameMode=field": "tabNameField"
+        },
+        "flatFileConfig": {
+          "fileWriterProps": {
+            "required": ["charset", "delimiter", "escape", "qualifier"],
+            "recommendedDefaults": {
+              "charset": "UTF_8",
+              "delimiter": ",",
+              "escape": "\\",
+              "qualifier": "\""
+            }
+          }
+        }
+      }
+    }
+  }
+}

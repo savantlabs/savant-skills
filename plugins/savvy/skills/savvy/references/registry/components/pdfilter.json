@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "type": "pdfilter",
+  "modes": ["wizard"],
+  "conditionalOperators": ["!=", "=", "IS_EMPTY", "NOT IS_EMPTY", "LIKE_CONTAINS", "NOT LIKE_CONTAINS", "LIKE_START", "NOT LIKE_START", "LIKE_END", "NOT LIKE_END", "IS NULL", "IS NOT NULL", "IS TRUE", "IS NOT TRUE", "IS FALSE", "IS NOT FALSE", ">", ">=", "<", "<=", "IS", "IS_NOT", "IS_IN", "IS_NOT_IN", "IS_BEFORE", "IS_AFTER", "IS_ON_OR_BEFORE", "IS_ON_OR_AFTER"]
+}

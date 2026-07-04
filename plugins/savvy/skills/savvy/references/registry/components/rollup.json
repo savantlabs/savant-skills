@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "type": "rollup",
+  "periodicity": ["day", "week", "month", "quarter", "year", "decade"],
+  "calcs": {
+    "SUM": {"argType": "field", "numericInput": true},
+    "COUNT": {"argTypes": ["row", "field"], "outputType": "integer"},
+    "NUNIQUE": {"argType": "field", "outputType": "integer"},
+    "MIN": {"argType": "field"},
+    "MAX": {"argType": "field"},
+    "AVG": {"argType": "field", "numericInput": true},
+    "JOIN_STR": {"argType": "field", "outputType": "string"},
+    "JOIN_STR_DISTINCT": {"argType": "field", "outputType": "string"},
+    "MEDIAN": {"argType": "field", "numericInput": true},
+    "MODE": {"argType": "field"},
+    "STDDEV": {"argType": "field", "numericInput": true},
+    "VAR": {"argType": "field", "numericInput": true}
+  },
+  "ignoredFields": ["params"],
+  "unsupportedCalcs": ["COUNT DISTINCT", "CONCAT", "CONCAT DISTINCT", "JOIN_DISTINCT"]
+}

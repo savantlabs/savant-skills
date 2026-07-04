@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "deduplicate",
+  "modes": ["onFields", "distinct"],
+  "configSchema": {
+    "list": ["fields", "sorts"],
+    "bool": ["includeDuplicates"]
+  },
+  "sortDirections": ["asc", "dsc"]
+}

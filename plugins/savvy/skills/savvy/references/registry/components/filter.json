@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "type": "filter",
+  "modes": ["wizard", "expression"],
+  "conditionalOperators": ["!=", "=", "IS_EMPTY", "NOT IS_EMPTY", "LIKE_CONTAINS", "NOT LIKE_CONTAINS", "LIKE_START", "NOT LIKE_START", "LIKE_END", "NOT LIKE_END", "IS NULL", "IS NOT NULL", "IS TRUE", "IS NOT TRUE", "IS FALSE", "IS NOT FALSE", ">", ">=", "<", "<=", "IS", "IS_NOT", "IS_IN", "IS_NOT_IN", "IS_BEFORE", "IS_AFTER", "IS_ON_OR_BEFORE", "IS_ON_OR_AFTER"],
+  "dateOperators": ["EXACT_DATE", "TODAY", "YESTERDAY", "TOMORROW", "THIS_WEEK", "THE_LAST_WEEK", "THE_NEXT_WEEK", "THIS_MONTH", "THE_LAST_MONTH", "THE_NEXT_MONTH", "THIS_YEAR", "THE_LAST_YEAR", "THE_NEXT_YEAR", "_DAYS_AGO", "_DAYS_FROM_NOW", "_MONTHS_AGO", "_MONTHS_FROM_NOW", "_YEARS_AGO", "_YEARS_FROM_NOW"]
+}

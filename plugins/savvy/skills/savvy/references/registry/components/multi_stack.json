@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "type": "multi_stack",
+  "fieldsToInclude": ["all", "match"],
+  "matchRule": ["by_name", "by_pos"]
+}

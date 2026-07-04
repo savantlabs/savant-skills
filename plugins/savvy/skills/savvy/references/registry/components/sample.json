@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "sample",
+  "strategies": ["FIRST_N"],
+  "configSchema": {
+    "required": ["strategy", "n"],
+    "positiveInt": ["n"],
+    "list": ["sorts", "groupBy"]
+  }
+}

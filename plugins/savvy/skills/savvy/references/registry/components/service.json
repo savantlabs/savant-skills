@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "type": "service",
+  "modes": ["BATCH"],
+  "serviceTypes": ["APIService", "LLMService"],
+  "connectorTypes": ["api", "openai"],
+  "apiMethods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  "periods": ["SECOND", "MINUTE", "HOUR", "DAY"],
+  "resultFormats": ["RAW_STRING", "JSON"],
+  "configSchema": {
+    "enum": {
+      "mode": ["BATCH"],
+      "serviceType": ["APIService", "LLMService"],
+      "connector": ["api", "openai"],
+      "type": ["openai"]
+    },
+    "positiveIntOrNumericString": ["rowLimit"]
+  }
+}
