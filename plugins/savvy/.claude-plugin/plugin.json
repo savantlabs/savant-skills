@@ -1,6 +1,6 @@
 {
   "name": "savvy",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Savvy — describe, build, and inspect Savant data workflows in natural language.",
   "author": {
     "name": "Savant"

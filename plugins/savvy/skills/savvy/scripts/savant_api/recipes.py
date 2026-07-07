@@ -117,8 +117,8 @@ def create_workflow_from_json(
     folder_id: str | None,
     poll: bool = True,
 ) -> dict[str, Any]:
-    # folder_id None (or empty) means the namespace root (Home); import_recipe_json omits the
-    # folderId field in that case so the workflow lands at the root.
+    # folder_id None (or empty) means the Home folder (namespace root); import_recipe_json omits
+    # the folderId field in that case so the workflow lands in the Home folder.
     import_response = import_recipe_json(context, json_path, folder_id=folder_id)
     result: dict[str, Any] = {"importResponse": import_response}
     if poll:
@@ -133,11 +133,11 @@ def create_workflow_from_json(
             result["flowUrl"] += f"?rns={urllib.parse.quote(context.namespace)}"
         created = get_recipe(context, flow_id)
         created_folder_id = created.get("folderId") if isinstance(created, dict) else None
-        # None and "" both denote the namespace root; normalize before comparing.
+        # None and "" both denote the Home folder; normalize before comparing.
         if (created_folder_id or None) != (folder_id or None):
             raise SavantAppApiError(
-                f"Workflow creation folder mismatch: requested folder `{folder_id or '(root)'}`, "
-                f"but created workflow `{flow_id}` reports folder `{created_folder_id or '(root)'}`."
+                f"Workflow creation folder mismatch: requested folder `{folder_id or '(Home folder)'}`, "
+                f"but created workflow `{flow_id}` reports folder `{created_folder_id or '(Home folder)'}`."
             )
         result["verifiedFolderId"] = created_folder_id
     return result

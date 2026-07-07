@@ -93,6 +93,25 @@ def parse_savant_url(url: str) -> SavantUrl:
     raise SavantAppApiError(f"URL is not a supported Savant flow or folder URL: {url}")
 
 
+def ensure_rns(url: str, namespace: str | None) -> str:
+    """Return `url` with `rns=<namespace>` appended when the URL lacks one.
+
+    A Savant link handed to the user should always carry the owning workspace's namespace
+    so the web app opens in the right workspace. An `rns` already present in the URL is
+    authoritative and left untouched, even if it differs from `namespace`; a blank `rns=`
+    is treated as missing. With no namespace to add, the URL is returned unchanged.
+    """
+    if not url or not namespace:
+        return url
+    parsed = urllib.parse.urlparse(url)
+    pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if any(key == "rns" and value for key, value in pairs):
+        return url
+    pairs = [(key, value) for key, value in pairs if key != "rns"]
+    pairs.append(("rns", namespace))
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(pairs)))
+
+
 # --- Creds-file session resolution ------------------------------------------------------
 #
 # The creds file is the handoff between the chat client (MCP speaker) and this shell (API

@@ -29,6 +29,7 @@ from savant_api.cli import (  # noqa: E402
     SavantAppApiError,
     analyze_and_fetch_node,
     discover_session,
+    ensure_rns,
     get_recipe,
     list_recipe_executions,
     parse_flow_url,
@@ -259,7 +260,7 @@ def build_health_report(
     execution_types = ["run_now", "scheduled", "test_run"]
     report: dict[str, Any] = {
         "task": "savant_workflow_health_check",
-        "flowUrl": flow_url,
+        "flowUrl": ensure_rns(flow_url, context.namespace),
         "workflow": {
             "id": recipe.get("id") or parsed.flow_id,
             "name": recipe.get("name"),

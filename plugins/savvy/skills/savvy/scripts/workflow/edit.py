@@ -368,7 +368,7 @@ def propose(flow_url: str, proposed_path: str | None = None, *, snapshot_path: P
     report = {
         "phase": "propose",
         "flowId": su.flow_id,
-        "flowUrl": flow_url,
+        "flowUrl": api.ensure_rns(flow_url, ctx.namespace),
         "snapshotPath": str(snapshot_path) if snapshot_path else None,
         "replaceFromBuild": replace_from_build,
         "mergedRecipePath": str(merged_path) if replace_from_build is not None else None,
@@ -414,7 +414,7 @@ def commit(ctx, su, proposed: dict, *, flow_url: str, checkpoints: list[str],
     return {
         "phase": "commit",
         "flowId": su.flow_id,
-        "flowUrl": flow_url,
+        "flowUrl": api.ensure_rns(flow_url, ctx.namespace),
         "update": update_report,
         "persistedDiff": persisted,
         "postSaveRecipePath": evidence.get("postSaveRecipePath"),

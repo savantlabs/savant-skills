@@ -70,6 +70,7 @@ from savant_api.recipes import (
 )
 from savant_api.session import (
     discover_session,
+    ensure_rns,
     parse_flow_url,
     parse_savant_url,
 )
@@ -158,7 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--export-recipe", action="store_true", help="Export (download) the flow's workflow JSON (the 'recipe'). Requires a flow URL.")
     parser.add_argument("--output-path", type=Path, help="Where to write this operation's JSON result. Optional; defaults to a deterministic path under tmp/savant-api-exports/. Use --stdout to print the result inline instead.")
     parser.add_argument("--import-json", type=Path, help="Create a workflow by importing this workflow JSON through the API.")
-    parser.add_argument("--folder-id", help="Target folder id, required for --import-json (use `root` for the namespace root/Home). The workflow is created in the authenticated session's namespace. Find the id via MCP search/fetch on the folder entity.")
+    parser.add_argument("--folder-id", help="Target folder id, required for --import-json (use `home` for the Home folder/namespace root; `root` is a legacy alias). The workflow is created in the authenticated session's namespace. Find the id via MCP search/fetch on the folder entity.")
+    parser.add_argument("--confirmed-namespace", help="Required for --import-json: namespace of the workspace the USER confirmed as the destination. Import is blocked if the session is in any other namespace — the destination workspace is user-named, never agent-chosen.")
     parser.add_argument("--no-import-poll", action="store_true", help="Do not poll the import promise after uploading.")
     parser.add_argument("--save-recipe-from", type=Path, help="Update an existing workflow from a full live-recipe JSON. Rejects creation-shaped workflow JSON.")
     parser.add_argument("--save-metadata-from", type=Path, help="Live-save flow metadata (name/description/tags) through PUT /api/recipes/{flowId}/metadata. description renders as Markdown.")
@@ -241,9 +243,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.import_json:
         if not args.folder_id:
             raise SavantAppApiError(
-                "API workflow creation requires --folder-id (use `root` for the namespace root). "
+                "API workflow creation requires --folder-id (use `home` for the Home folder). "
                 "Find a folder's id via MCP search/fetch on the folder entity; the workflow is "
                 "created in the authenticated session's namespace."
+            )
+        confirmed_ns = (args.confirmed_namespace or "").strip()
+        if not confirmed_ns:
+            raise SavantAppApiError(
+                "API workflow creation requires --confirmed-namespace: the namespace of the "
+                "workspace the USER confirmed as the destination. The destination workspace is "
+                "user-named, never agent-chosen."
+            )
+        session_ns = (context.namespace or "").strip()
+        if session_ns != confirmed_ns:
+            raise SavantAppApiError(
+                f"Session namespace `{session_ns or '(unknown)'}` does not match the "
+                f"user-confirmed workspace namespace `{confirmed_ns}` — the session is not in "
+                "the workspace the user confirmed as the destination. Switch back (MCP "
+                "switch-workspace) or have the user explicitly name the new destination "
+                "workspace; never retarget on your own."
             )
         target_folder_id = None if is_root_folder_target(args.folder_id) else args.folder_id
         import_result = create_workflow_from_json(
@@ -258,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
             print(import_result.get("flowUrl") or import_result.get("flowId") or import_path)
         else:
             created = import_result.get("flowUrl") or import_result.get("flowId") or "created flow id not returned by import promise"
-            print(f"Imported {args.import_json} into folder {target_folder_id or '(namespace root)'}: {created}")
+            print(f"Imported {args.import_json} into folder {target_folder_id or '(Home folder)'}: {created}")
             print(f"Wrote import result to {import_path}")
         return 0
 

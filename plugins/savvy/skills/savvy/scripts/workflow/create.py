@@ -4,8 +4,9 @@
 Two phases, with the user-confirmation gate between them:
 
   PREFLIGHT (always): validate the workflow JSON, resolve the exact target
-  folder + session, and check for blockers (validation errors, or an AI-backed
-  node with a missing providerId). Emits a
+  folder + session, verify the session namespace against the user-confirmed
+  destination workspace (--confirmed-namespace), and check for blockers
+  (validation errors, or an AI-backed node with a missing providerId). Emits a
   summary. It does NOT import.
 
   CREATE + VERIFY (only with --confirm-import, and only if preflight is clean): import the JSON
@@ -46,7 +47,7 @@ _CREATE_STATUSES = {
 }
 
 
-def preflight(json_path: str, *, folder_id: str):
+def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None = None):
     wf = json.loads(Path(json_path).read_text(encoding="utf-8"))
     nodes = [n for n in (wf.get("nodes") or []) if isinstance(n, dict)]
     errors, warnings = vw.validate(Path(json_path), block_documentation_gaps=True)
@@ -57,12 +58,12 @@ def preflight(json_path: str, *, folder_id: str):
     api_enabled = bool(capability.get("api_enabled"))
     ctx = None
     # The target workspace/namespace is the authenticated session's — the credentials' namespace,
-    # the same one create and fetch all operate in. `root`/`home` targets the namespace root
-    # (Home), which the import API represents as a null folder id. The folder id itself is not
+    # the same one create and fetch all operate in. `home` (or the legacy alias `root`) targets
+    # the Home folder (namespace root), which the import API represents as a null folder id. The folder id itself is not
     # pre-resolved here: create_workflow_from_json reads the created workflow back and hard-fails
     # unless created.folderId equals the requested id, so a bad/foreign id is caught at import.
     root_target = is_root_folder_target(folder_id)
-    folder: dict = {"id": None, "path": "(namespace root)"} if root_target else {"id": folder_id, "path": None}
+    folder: dict = {"id": None, "path": "(Home folder)"} if root_target else {"id": folder_id, "path": None}
     if api_enabled:
         ctx = api.discover_session(None)
 
@@ -91,6 +92,26 @@ def preflight(json_path: str, *, folder_id: str):
         blocked_reasons.append(
             "Savant API is not enabled for this session/package; workflow creation through the API is unavailable."
         )
+    # Workspace-consent guard: the session's namespace must be the one the USER confirmed as the
+    # destination at intake. This is the deterministic net against silent retargeting — an agent
+    # that switched workspaces after the user confirmed one (or is creating in a workspace the
+    # user never named) is caught here at import time, not just at the evidence precheck.
+    confirmed_ns = (confirmed_namespace or "").strip()
+    if ctx is not None and confirmed_ns:
+        session_ns = (ctx.namespace or "").strip()
+        if not session_ns:
+            blocked_reasons.append(
+                "the session namespace could not be determined, so it cannot be verified against "
+                f"the user-confirmed workspace namespace `{confirmed_ns}` — re-mint credentials in "
+                "the confirmed workspace (MCP switch-workspace) and retry"
+            )
+        elif session_ns != confirmed_ns:
+            blocked_reasons.append(
+                f"session namespace `{session_ns}` does not match the user-confirmed workspace "
+                f"namespace `{confirmed_ns}` — the session is not in the workspace the user "
+                "confirmed as the destination. Switch back (MCP switch-workspace) or have the "
+                "user explicitly name the new destination workspace; never retarget on your own."
+            )
     if errors:
         blocked_reasons.append(f"{len(errors)} validation error(s)")
     if missing_ai_providers:
@@ -116,6 +137,7 @@ def preflight(json_path: str, *, folder_id: str):
         "validation": {"errors": errors, "warnings": warnings},
         "folder": {"id": folder.get("id"), "path": folder.get("path")},
         "namespace": ctx.namespace if ctx is not None else None,
+        "confirmedNamespace": confirmed_ns or None,
         "capability": capability,
         "missingAiProviders": missing_ai_providers,
         "sourceDatasetPlaceholders": placeholder_sources,
@@ -195,7 +217,9 @@ def create_status(*, data_verified: bool | None, skip_inspect: bool) -> str:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--import-json", required=True, help="Workflow JSON to create.")
-    p.add_argument("--folder-id", required=True, help="Target folder id, or `root` for the namespace root (Home). The workflow is created in the authenticated session's namespace. Find the id via MCP search/fetch on the folder entity.")
+    p.add_argument("--folder-id", required=True, help="Target folder id, or `home` for the Home folder (namespace root; `root` is a legacy alias). The workflow is created in the authenticated session's namespace. Find the id via MCP search/fetch on the folder entity.")
+    p.add_argument("--confirmed-namespace", required=True,
+                   help="Namespace of the workspace the USER confirmed as the destination (from MCP search/whereami, recorded in the handoff's context_confirmation.namespace). Import is blocked if the session is in any other namespace — the destination workspace is user-named, never agent-chosen.")
     p.add_argument("--confirm-import", action="store_true",
                    help="Proceed past preflight to import + verify. Set ONLY after the user confirmed creation in chat.")
     p.add_argument("--expect-columns", help="Comma-separated expected final output columns (for the inspect contract).")
@@ -217,7 +241,9 @@ def main(argv=None) -> int:
 
     report_path = args.output_path or default_output_path(args.import_json)
 
-    report, ctx, folder = preflight(args.import_json, folder_id=args.folder_id)
+    report, ctx, folder = preflight(
+        args.import_json, folder_id=args.folder_id, confirmed_namespace=args.confirmed_namespace
+    )
 
     def emit(rep):
         api.save_json(rep, report_path)
