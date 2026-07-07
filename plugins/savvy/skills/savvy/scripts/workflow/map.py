@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from savant_api.cli import (  # noqa: E402
     SavantAppApiError,
     discover_session,
+    ensure_rns,
     get_recipe,
     parse_flow_url,
     recipe_nodes,
@@ -57,7 +58,7 @@ def load_recipe(*, flow_url: str | None, input_json: Path | None) -> tuple[dict[
     recipe = get_recipe(context, parsed.flow_id)
     return recipe, {
         "source": "api",
-        "flowUrl": flow_url,
+        "flowUrl": ensure_rns(flow_url, context.namespace),
         "workspaceId": context.workspace_id,
         "workspaceName": (context.workspace or {}).get("name"),
         "organizationId": context.org_id,

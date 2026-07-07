@@ -194,6 +194,9 @@ def _creator_preflight(stage: str) -> dict[str, Any]:
         "context_confirmation": {
             "status": "passed",
             "target_context": "",
+            "workspace": "",
+            "namespace": "",
+            "user_stated_destination": "",
             "user_confirmed": True,
             "user_confirmation_evidence": "",
         },
@@ -204,7 +207,7 @@ def _creator_preflight(stage: str) -> dict[str, Any]:
             "user_confirmation_evidence": "",
         },
         "workflow_validation": {"status": "passed"},
-        "folder": {"status": "passed", "id": ""},
+        "folder": {"status": "passed", "id": "", "workspace": ""},
         "import_allowed": True,
     }
 

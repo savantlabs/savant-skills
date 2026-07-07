@@ -106,6 +106,46 @@ UNRESOLVED_METADATA_VALUES = {
 }
 ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# Phrases that mark confirmation "evidence" as a NON-answer: the user was asked but did not
+# actually choose. A dismissed, skipped, or "no preference" response is not consent. The only
+# question with a sanctioned default is the destination FOLDER, which resolves to the Home
+# folder (`folder.id: home`) of the user-confirmed workspace — announced, never silent, and
+# never another folder or workspace. Matched with `_normalize_for_contains` (casefolded,
+# -/_ collapsed to spaces).
+NON_ANSWER_EVIDENCE_PHRASES = (
+    "no preference",
+    "no answer",
+    "not answered",
+    "did not answer",
+    "didn't answer",
+    "didnt answer",
+    "no response",
+    "did not respond",
+    "didn't respond",
+    "didnt respond",
+    "no user response",
+    "declined to answer",
+    "declined to choose",
+    "dismissed the question",
+    "question was dismissed",
+    "skipped the question",
+    "question was skipped",
+    "left blank",
+    "left the question blank",
+    "blank answer",
+    "without an answer",
+    "without a user answer",
+    "without asking",
+    "on the user's behalf",
+    "on the users behalf",
+    "on behalf of the user",
+    "as a fallback",
+    "low friction option",
+    "low friction default",
+    "proceeding with default",
+    "defaulted to",
+)
+
 
 def status_of(value: Any) -> str:
     if isinstance(value, str):
@@ -275,10 +315,39 @@ def _require_resolved_metadata_string(errors: list[str], value: Any, field_path:
         errors.append(f"`{field_path}` must be resolved before JSON generation.")
 
 
+def _non_answer_hits(value: str) -> list[str]:
+    normalized = _normalize_for_contains(value)
+    return sorted(phrase for phrase in NON_ANSWER_EVIDENCE_PHRASES if phrase in normalized)
+
+
+def _reject_non_answer_evidence(errors: list[str], value: Any, field_path: str) -> None:
+    """A recorded non-answer can never satisfy a user-consent gate.
+
+    "The user was asked and answered 'no preference'" is a truthful sentence, but it is not
+    consent. Workspace and creation consent have no default — stop and ask. Only the
+    destination FOLDER has one: the Home folder of the user-confirmed workspace, recorded in
+    `context_confirmation.user_stated_destination` with `folder.id: home` and announced to
+    the user — never another folder or workspace.
+    """
+    if not isinstance(value, str):
+        return
+    hits = _non_answer_hits(value)
+    if hits:
+        errors.append(
+            f"`{field_path}` records a non-answer ({', '.join(repr(h) for h in hits)}). "
+            "A dismissed, skipped, or 'no preference' response is not consent — stop, keep the "
+            "built artifacts, and ask the user again. Exception: a folder non-answer resolves to "
+            "the Home folder of the user-confirmed workspace (`folder.id: home`, announced) — "
+            "record that in `context_confirmation.user_stated_destination`, and keep this field "
+            "to the user's actual approval words."
+        )
+
+
 def _require_explicit_user_evidence(errors: list[str], value: Any, field_path: str) -> None:
     _require_non_empty_string(errors, value, field_path)
     if not isinstance(value, str):
         return
+    _reject_non_answer_evidence(errors, value, field_path)
     normalized = _normalize_for_contains(value)
     weak_only_phrases = (
         "user asked to create",
@@ -667,12 +736,40 @@ def validate_creator_preflight(evidence: dict[str, Any], *, require_import_allow
         errors.append("Folder/workspace context confirmation is required before dataset discovery and import.")
     if not isinstance(context_confirmation.get("target_context"), str) or not context_confirmation["target_context"].strip():
         errors.append("`context_confirmation.target_context` must describe the selected folder/workspace context.")
+    if not isinstance(context_confirmation.get("workspace"), str) or not context_confirmation["workspace"].strip():
+        errors.append(
+            "`context_confirmation.workspace` must name the workspace the user confirmed as the "
+            "destination. The workspace has no default — if the user has not named one, stop and ask."
+        )
+    if not isinstance(context_confirmation.get("namespace"), str) or not context_confirmation["namespace"].strip():
+        errors.append(
+            "`context_confirmation.namespace` must record the confirmed workspace's namespace "
+            "(from MCP `search`/`whereami`) — `workflow create --confirmed-namespace` verifies the "
+            "session against it at import time."
+        )
+    user_stated = context_confirmation.get("user_stated_destination")
+    destination_non_answer = False
+    if not isinstance(user_stated, str) or not user_stated.strip():
+        errors.append(
+            "`context_confirmation.user_stated_destination` is required — quote the user's own words "
+            "naming the destination folder, or record their non-answer verbatim (e.g. \"answered "
+            "'no preference'\"). A non-answer resolves to the Home folder of the confirmed workspace "
+            "(`folder.id: home`), announced to the user — never another folder or workspace."
+        )
+    else:
+        destination_non_answer = bool(_non_answer_hits(user_stated))
     if not is_truthy(context_confirmation.get("user_confirmed")):
         errors.append("`context_confirmation.user_confirmed` must be true before dataset discovery/import.")
     if not isinstance(context_confirmation.get("user_confirmation_evidence"), str) or not context_confirmation[
         "user_confirmation_evidence"
     ].strip():
         errors.append("`context_confirmation.user_confirmation_evidence` is required.")
+    else:
+        _require_explicit_user_evidence(
+            errors,
+            context_confirmation["user_confirmation_evidence"],
+            "context_confirmation.user_confirmation_evidence",
+        )
 
     confirmation = evidence.get("creation_confirmation")
     if not isinstance(confirmation, dict):
@@ -689,6 +786,12 @@ def validate_creator_preflight(evidence: dict[str, Any], *, require_import_allow
         errors.append("`creation_confirmation.user_confirmed` must be true before import.")
     if not isinstance(confirmation.get("user_confirmation_evidence"), str) or not confirmation["user_confirmation_evidence"].strip():
         errors.append("`creation_confirmation.user_confirmation_evidence` is required.")
+    else:
+        _require_explicit_user_evidence(
+            errors,
+            confirmation["user_confirmation_evidence"],
+            "creation_confirmation.user_confirmation_evidence",
+        )
 
     validation_status = status_of(evidence.get("workflow_validation"))
     if validation_status not in KNOWN_STATUSES:
@@ -707,9 +810,35 @@ def validate_creator_preflight(evidence: dict[str, Any], *, require_import_allow
         errors.append("Destination folder must be explicitly resolved before import.")
     folder_id = folder.get("id")
     if is_root_folder_target(folder_id):
-        pass  # namespace root (Home): expressed as the `root`/`home` sentinel, no real id needed
+        pass  # Home folder (namespace root): expressed as the `home`/`root` sentinel, no real id needed
     elif not isinstance(folder_id, str) or not folder_id.strip():
-        errors.append("Destination `folder.id` is required (use `root` for the namespace root/Home).")
+        errors.append("Destination `folder.id` is required (use `home` for the Home folder/namespace root).")
+    elif destination_non_answer:
+        errors.append(
+            f"`context_confirmation.user_stated_destination` records a non-answer, but `folder.id` "
+            f"is `{str(folder_id).strip()}` — a non-answer resolves ONLY to the Home folder of the "
+            "confirmed workspace (`folder.id: home`), announced to the user. Never substitute another "
+            "existing folder or a different workspace the user did not name."
+        )
+    folder_workspace = folder.get("workspace")
+    if not isinstance(folder_workspace, str) or not folder_workspace.strip():
+        errors.append(
+            "`folder.workspace` must name the workspace the destination folder lives in, so it can "
+            "be checked against the user-confirmed workspace."
+        )
+    else:
+        confirmed_workspace = context_confirmation.get("workspace")
+        if (
+            isinstance(confirmed_workspace, str)
+            and confirmed_workspace.strip()
+            and _normalize_for_contains(confirmed_workspace) != _normalize_for_contains(folder_workspace)
+        ):
+            errors.append(
+                f"Destination folder workspace `{folder_workspace.strip()}` does not match the "
+                f"user-confirmed workspace `{confirmed_workspace.strip()}`. Retargeting to a different "
+                "workspace invalidates the earlier confirmation — stop and get the user to name the "
+                "new destination explicitly before import."
+            )
 
     import_allowed = evidence.get("import_allowed")
     if not isinstance(import_allowed, bool):

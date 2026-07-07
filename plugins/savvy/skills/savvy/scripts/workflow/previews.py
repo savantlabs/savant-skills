@@ -25,6 +25,7 @@ from savant_api.cli import (  # noqa: E402
     SavantAppApiError,
     TERMINAL_NODE_STATUSES,
     discover_session,
+    ensure_rns,
     fetch_node_output,
     get_recipe,
     graph_status,
@@ -238,7 +239,7 @@ def build_preview_report(
 
     return {
         "task": "node_previews",
-        "flowUrl": flow_url,
+        "flowUrl": ensure_rns(flow_url, context.namespace),
         "workflow": {
             "id": recipe.get("id") or parsed.flow_id,
             "name": recipe.get("name"),
