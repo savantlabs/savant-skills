@@ -1,10 +1,16 @@
 # Savant Q&A (q-and-a mode)
 
-> **When this mode applies:** general Savant product/usage questions that are not primarily requests to build, create, inspect, edit, or export a specific workflow — "what is Savant?", "what is a dataset/system/folder/workspace?", "what does this tool/step mean?", "how do people use Savant?", "what is Analyze mode?", or conceptual questions about Savant objects, workflow steps, source data, systems, datasets, and common use cases. Also covers admin Usage Log questions (usage by workflow, owner, workspace, connector, rows, runs, tokens).
+> **When this mode applies:** questions about Savvy's capabilities, behavior, deliverables, setup,
+> requirements, or limitations; general Savant product and usage questions that are not primarily
+> requests to build, create, inspect, edit, or export a specific workflow; and admin Usage Log
+> questions about usage by workflow, owner, workspace, connector, rows, runs, or tokens.
 
 ## Goal
 
-The job of Q&A is to answer general Savant product and usage questions in plain business language — orientation and explanation, not changes. The user should come away understanding the concept, why it matters in Savant, and (when useful) one concrete example.
+The job of Q&A is to answer questions about Savvy and general Savant product or usage concepts in
+plain business language. The user should understand whether a Savvy capability is supported, how
+it works at the user-visible level, why a Savant concept matters, and any material requirements or
+limitations. Q&A explains and orients; it switches modes before creating or changing a workflow.
 
 This is the **generic-knowledge** skill: it answers conceptual questions that have no specific flow target. When the user points at a specific flow URL, or wants to build/create/edit something, route to the matching workflow skill (see Boundaries).
 
@@ -34,6 +40,11 @@ Run the Q&A intake checkpoint before answering when the question depends on a sp
 
 Then load only the specific extra reference needed:
 
+- For a question about Savvy itself — what it can do, whether a capability is supported, how a
+  Savvy task works, what it produces, how to get started, or what limitations apply — read
+  `../about-savvy.md` first. If its capability entry points to an owning reference and the user
+  asks for exact behavior, conditions, inputs, outputs, or limitations, read that owning reference
+  before answering. Do not answer from model memory.
 - For a question about a workflow step/tool type, start with `../../references/components/_index.md`, then read the specific component file such as `filter.md`, `edit.md`, `blend.md`, `summarize.md`, `destination.md`, `source.md`, `gen_ai.md`, or `vision.md`.
 - For Analyze/Test/Run questions, read `../../references/substrate/run-modes.md`.
 - For Run History, Test History, schedule-history, "did it run?", or "what happened when it ran?" questions, read `../../references/substrate/run-history-substrate.md`.
@@ -41,6 +52,14 @@ Then load only the specific extra reference needed:
 - For questions about datasets, connected systems, workspace availability, or source binding, read `../../references/substrate/dataset-substrate.md`.
 - For questions about workflow diagrams, groups, readability, or layout, read `../../references/standards/canvas-layout-rules.md`.
 - For questions about inspecting live workflow results, read `../../references/standards/workflow-inspection-rules.md`.
+
+### Source precedence for Savvy questions
+
+The current owning skill, solution, substrate, component, or standard is authoritative for
+implemented Savvy behavior. `../about-savvy.md` is the compact index and summary. Product
+requirements, positioning documents, and roadmap materials are background only unless current
+plugin behavior independently confirms the claim. The Savant Help Center supplies Savant product
+information; it does not replace Savvy's own implementation references.
 
 ## External references
 
@@ -80,9 +99,17 @@ Avoid implementation terms by default. Prefer "step" over "node", "process" over
 
 A Q&A answer is done when it's concise, in business language, and grounded in the right reference. Claim live Savant state only when `api_enabled` was true and the data was actually checked — otherwise answer from local/shared docs and say what wasn't checked. For "latest / what's new / current release" questions, base the answer on dated Help Center content, not memory, and state the date. If the question turned into an action (build / create / edit / inspect / export), hand off to that skill rather than answering as if it were conceptual.
 
+For a question about Savvy, the answer must state whether the capability is supported, limited, or
+unsupported; explain it in business terms; include material requirements or limitations; and be
+grounded in `../about-savvy.md` plus any owning reference it identifies for the requested level of
+detail.
+
 ## Common explanations
 
 - **Savant:** A platform for turning repeatable data work into automated business processes: bring in data, clean it, match it, calculate results, flag exceptions, and deliver outputs.
+- **Savvy:** Savant's AI assistant for creating, understanding, improving, and operating governed
+  work in Savant. For supported capabilities, user-visible behavior, and detailed-reference
+  pointers, read `../about-savvy.md`.
 - **Workspace:** The user's current work area. Systems, datasets, folders, workflows, permissions, and run history are specific to that workspace.
 - **System:** A connected source or destination available in the current workspace, such as Snowflake, SharePoint, S3, Google Drive, SFTP, or an API.
 - **Dataset:** A reusable input. It can be an uploaded/static file or come from a connected system. One dataset can be used by multiple workflows.
