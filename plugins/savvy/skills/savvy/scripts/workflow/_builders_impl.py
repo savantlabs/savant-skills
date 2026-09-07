@@ -993,12 +993,76 @@ def deduplicate(name: str, fields: list[str] | None = None, sorts: list[tuple[st
     """Deduplicate rows. fields = key columns (empty = whole-row distinct). sorts pick survivor."""
     return _node("deduplicate", name, _deduplicate_config(fields, sorts, mode), description=description)
 
+# Aggregations that return TEXT, not a number. Two consequences, and getting either wrong is
+# invisible until a user looks at the result: the output column's dataType must be "string" (each
+# node's registry entry under references/registry/components/ declares exactly this), and the
+# values are concatenated with a caller-chosen separator instead of a numeric reduction.
+_STRING_CALCS = ("JOIN_STR", "JOIN_STR_DISTINCT")
+
+# Savant's own config key is misspelled (`delimeter`, and `originalDelimeter` under `extra`).
+# That spelling IS the wire contract — the app reads those exact keys, so do not "correct" it.
+_DEFAULT_DELIMITER = ", "
+
+
+def _agg_out_dt(calc: str) -> str:
+    """Output dataType for an aggregation calc token. Shared by summarize/rollup/hierarchy so the
+    string case cannot be fixed in one builder and missed in another (PLAT-6240: summarize and
+    rollup both stamped JOIN_STR outputs as `number`, contradicting their own registry)."""
+    if calc in _STRING_CALCS:
+        return "string"
+    return "integer" if calc in ("COUNT", "NUNIQUE") else "number"
+
+
+def _agg_delimiter_params(calc: str, delimiter: str | None, *, legacy_extra: bool = False) -> dict:
+    """The config fragment carrying a string-join separator.
+
+    `params.delimeter` is the contract the app reads (references/components/hierarchy.md:25).
+    `extra.originalDelimeter` is only what older exports *also* preserve, so it is opt-in per
+    node: hierarchy has always emitted it and its shape is verified against real exports, so it
+    keeps doing so; summarize/rollup exports do not carry it and we do not invent it."""
+    delim = _DEFAULT_DELIMITER if delimiter is None else delimiter
+    fragment: dict = {"params": {"delimeter": delim}}
+    if legacy_extra:
+        fragment["extra"] = {"originalDelimeter": delim}
+    return fragment
+
+
+def _unpack_agg(agg: Any, *, label: str, kind: str) -> tuple[str, str, str, str | None]:
+    """Normalize one agg entry to (calc, field, output_name, delimiter|None).
+
+    Accepts `(calc, field, output_name)` or `(calc, field, output_name, delimiter)`; the 4th
+    element sets the separator for JOIN_STR/JOIN_STR_DISTINCT."""
+    if not isinstance(agg, (tuple, list)) or not (3 <= len(agg) <= 4):
+        raise ValueError(
+            f"{kind}{label}: agg must be (calc, field, output_name[, delimiter]), got {agg!r}."
+        )
+    delim = agg[3] if len(agg) == 4 else None
+    if delim is not None:
+        if not isinstance(delim, str):
+            raise ValueError(
+                f"{kind}{label}: delimiter for output `{agg[2]}` must be a string, got {delim!r}."
+            )
+        if agg[0] not in _STRING_CALCS:
+            raise ValueError(
+                f"{kind}{label}: `{agg[0]}` does not concatenate values, so a delimiter is "
+                f"meaningless for output `{agg[2]}`. Only {'/'.join(_STRING_CALCS)} take one."
+            )
+    return agg[0], agg[1], agg[2], delim
+
+
 def _rollup_config(date_col: str, group_by: list[str], aggs: list[tuple[str, str, str]],
                   periodicity: str = "day") -> dict:
-    """Shared config core for rollup. aggs = [(calc, field, alias)]. Used by `rollup` / `rollup_update`."""
-    agg_list = [{"arg": {"expr": "", "type": "field", "error": "", "constantValue": "", "selectedField": fld},
-                 "calc": calc, "tgt_col": _target_col(alias, "number")}
-                for calc, fld, alias in aggs]
+    """Shared config core for rollup. aggs = [(calc, field, alias[, delimiter])]. Used by
+    `rollup` / `rollup_update`."""
+    agg_list = []
+    for agg in aggs:
+        calc, fld, alias, delim = _unpack_agg(agg, label="", kind="rollup")
+        agg_list.append({
+            "arg": {"expr": "", "type": "field", "error": "", "constantValue": "", "selectedField": fld},
+            "calc": calc,
+            **_agg_delimiter_params(calc, delim),
+            "tgt_col": _target_col(alias, _agg_out_dt(calc)),
+        })
     return {"aggs": agg_list, "dateCol": date_col, "groupBy": list(group_by), "periodicity": periodicity}
 
 def rollup(name: str, date_col: str, group_by: list[str], aggs: list[tuple[str, str, str]],
@@ -1024,21 +1088,15 @@ def hierarchy(name: str, id_field: str, parent_id_field: str,
         raise ValueError("hierarchy needs at least one agg.")
     agg_list = []
     for a in aggs:
-        if not isinstance(a, (tuple, list)) or not (3 <= len(a) <= 4):
-            raise ValueError(f"hierarchy agg must be (calc, field, output_name[, delimiter]), got {a!r}.")
-        calc, fld, out = a[0], a[1], a[2]
-        delim = a[3] if len(a) == 4 else ", "
+        calc, fld, out, delim = _unpack_agg(a, label="", kind="hierarchy")
         if calc not in _HIERARCHY_CALCS:
             raise ValueError(f"hierarchy calc {calc!r} not supported; use one of {sorted(_HIERARCHY_CALCS)}.")
         arg_type = "row" if (calc == "COUNT" and fld in ("Row", "row")) else "field"
-        out_dt = ("string" if calc in ("JOIN_STR", "JOIN_STR_DISTINCT")
-                  else "integer" if calc in ("COUNT", "NUNIQUE") else "number")
         agg_list.append({
             "arg": {"expr": "", "type": arg_type, "error": "", "constantValue": "", "selectedField": fld},
             "calc": calc,
-            "extra": {"originalDelimeter": delim},
-            "params": {"delimeter": delim},
-            "tgt_col": _target_col(out, out_dt),
+            **_agg_delimiter_params(calc, delim, legacy_extra=True),
+            "tgt_col": _target_col(out, _agg_out_dt(calc)),
         })
     return _node("hierarchy", name,
                  {"aggs": agg_list, "idField": id_field, "parentIdField": parent_id_field},
@@ -1351,7 +1409,8 @@ def _summarize_config(group_by: list[str], aggs: list[tuple[str, str, str]], *,
     skips blanks); any other calc with `Row` or a group-by field as its argument raises."""
     label = f" `{node_name}`" if node_name else ""
     agg_list = []
-    for calc, fld, out in aggs:
+    for agg in aggs:
+        calc, fld, out, delim = _unpack_agg(agg, label=label, kind="summarize")
         if calc == "COUNT":
             if fld != "Row" and fld in group_by:
                 print(f"notice: summarize{label}: COUNT argument `{fld}` is also a group-by field; "
@@ -1369,10 +1428,10 @@ def _summarize_config(group_by: list[str], aggs: list[tuple[str, str, str]], *,
                 f"Apply would destroy it. Aggregate a different column or remove `{fld}` from group_by."
             )
         arg_type = "row" if (calc == "COUNT" and fld == "Row") else "field"
-        out_dt = "integer" if calc in ("COUNT", "NUNIQUE") else "number"
         agg_list.append({"arg": {"expr": "", "type": arg_type, "error": "", "selectedField": fld},
-                         "calc": calc, "params": {"delimeter": ", "},
-                         "tgt_col": _target_col(out, out_dt)})
+                         "calc": calc,
+                         **_agg_delimiter_params(calc, delim),
+                         "tgt_col": _target_col(out, _agg_out_dt(calc))})
     return {"aggs": agg_list, "sorts": [], "window": [0, None],
             "groupBy": list(group_by), "useWindow": False}
 
