@@ -208,9 +208,11 @@ nb.sample_top(name, n, sorts=None, group_by=None, description="")
 nb.hierarchy(name, id_field, parent_id_field, aggs, description="")
 ```
 
-Agg tuples: `("SUM", "Amount", "Total Amount")`, `("COUNT", "Row", "Rows")`, `("JOIN_STR", "Employee Name", "Hierarchy", ">")`.
+Agg tuples: `(calc, field, output_name)` or `(calc, field, output_name, delimiter)` — the 4th element sets the separator for the string-joining calcs and raises on any other calc. Examples: `("SUM", "Amount", "Total Amount")`, `("COUNT", "Row", "Rows")`, `("JOIN_STR", "Employee Name", "Hierarchy", ">")`, `("JOIN_STR_DISTINCT", "Category", "Categories", " | ")`. Same form for `summarize`, `rollup`, and `hierarchy`.
 
-Calc tokens: `SUM, COUNT, AVG, MIN, MAX, NUNIQUE`; hierarchy also supports `JOIN_STR, JOIN_STR_DISTINCT, MEDIAN, STDDEV, VAR`.
+Calc tokens: `SUM, COUNT, AVG, MIN, MAX, NUNIQUE, MEDIAN, STDDEV, VAR, MODE, JOIN_STR, JOIN_STR_DISTINCT`; `summarize` also has `FIRST, LAST`. Per-node truth is `../registry/components/{type}.json` (`calcs`, plus `unsupportedCalcs` — e.g. summarize rejects `COUNT DISTINCT`/`CONCAT`, use `NUNIQUE`/`JOIN_STR`).
+
+`JOIN_STR`/`JOIN_STR_DISTINCT` outputs are typed `string`; `COUNT`/`NUNIQUE` are `integer`; the rest are `number`. The builders stamp this from the calc token, matching each registry's `outputType` — never hand-write a numeric dataType on a string join.
 
 ## Reshape
 
