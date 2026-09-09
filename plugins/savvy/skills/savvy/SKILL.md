@@ -127,10 +127,15 @@ credentials from the environment. The handshake:
 
    *Optional file form (your discretion — e.g. a long session where per-call prefixing is noisy):* write the **`get-api-credentials` response** to the path from `savant.py session tmp-path savant-creds.json` and set `SAVANT_CREDS_FILE` to it. The response object *is* the file format — no transformation. That path is a user-private, OS-reaped temp dir outside the repo; **never write credentials anywhere else** (repo, `$HOME`, a `.env`), and don't keep them past the session.
 4. **On a 401**, the token expired — call `get-api-credentials` again, re-supply the credentials, and retry. Don't re-parse or hand-retry beyond that.
+5. **If re-minting doesn't help** — the MCP tools aren't callable, `get-api-credentials` returns not-connected, or a 401 persists after a fresh mint — the `savvy-*` connector is disconnected. **Do not** construct an `oauth2/authorize` URL or ask the user to paste back a `localhost/callback` URL: that callback only works while the app's sign-in server is live, so it is misleading once the connector has dropped. Tell the user plainly that their Savant connector looks disconnected and to reconnect it, then stop and wait for them to confirm.
 
 **Never echo the token (or the creds file's contents) into a user-facing reply.**
 
 Then confirm access: `savant.py capabilities --output-path "$(savant.py session tmp-path savant-capabilities.json)"` and proceed only when `api_enabled: true`.
+
+**`api_enabled` gates writes, not reads.** Reading, mapping, explaining, verifying and exporting a workflow need no API access at all: fetch the recipe with the MCP `fetch` tool on `savant://workflow/{flowId}` and pass the file to `workflow map`, `workflow verify`, `app --inspect-node`, or the flow-explainer agent. Datasets and AI providers come from MCP `search`. What still needs `api_enabled` is creating, saving, uploading, running previews, and reading run history. So "API is off" means "I cannot change or run anything", not "I cannot look at your workflow".
+
+Note the probe is now credential-shaped rather than a live call, so an expired token reads as `available` and surfaces as a 401 on the first write rather than here.
 
 ## Run modes (data-evidence ladder)
 

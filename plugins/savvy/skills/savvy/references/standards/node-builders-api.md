@@ -252,7 +252,7 @@ nb.api_service(name, url, method="GET", result_format="JSON", description="")
 nb.schema_hints((node_or_id, ["Output Column"]))
 ```
 
-AI/provider-backed nodes default missing `provider_id` to Savant Trial (`savant-ai-provider-gzilpzflks`). When API access is available, use the live provider list first and ask only if more than one provider is available. Use `schema_hints(...)` for generated columns referenced downstream.
+AI/provider-backed nodes default missing `provider_id` per node type: `gen_ai` and `vision` get `savant_anthropic`; **`fuzzy_match` gets the legacy unified id `savant-ai-provider-gzilpzflks`, which is the only Savant-managed id the Canvas Fuse picker accepts** (see `../components/fuzzy_match.md` — do not unify these two defaults). When API access is available, resolve the live provider list first (MCP `search`, `types: ["ai_provider"]`) and ask only if more than one provider is available. Use `schema_hints(...)` for generated columns referenced downstream.
 For JSON extraction with GenAI, prefer `gen_ai_json_flatten(...)`. It wires `gen_ai -> json(flatten)` and owns the GenAI output field name through `gen_ai_output_field()`, so callers do not guess the JSON node `inputField`. The returned handle is the JSON flatten node id for downstream wiring and grouping. Attach schema hints to the GenAI node, not the JSON node: `ai = nb.gen_ai_node_for_json_flatten(f, flat); hints = nb.schema_hints((ai, ["sentiment", "evidence"]))`.
 
 ## Editor Updates

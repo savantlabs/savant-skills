@@ -10,7 +10,7 @@ from typing import Any
 from .fileio import save_json, workspace_tmp
 from .httpclient import request
 from .models import SavantAppApiError, SavantSessionContext
-from .recipes import get_recipe
+from .recipe_input import load_recipe
 from .session import discover_session, parse_savant_url
 
 
@@ -202,6 +202,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dataset-id", action="append", default=[], help="Dataset/source id to download. Can be repeated.")
     parser.add_argument("--source-id", action="append", default=[], help="Alias for --dataset-id. Can be repeated.")
+    parser.add_argument("--workflow-json", type=Path,
+                        help="The flow's recipe, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}. Required for a flow URL; not needed when "
+                             "datasets are named with --dataset-id.")
     parser.add_argument("--output-dir", type=Path, help="Directory for downloaded files and manifest.")
     parser.add_argument("--manifest-path", type=Path, help="Optional manifest JSON path. Defaults to <output-dir>/manifest.json.")
     parser.add_argument("--stdout", action="store_true", help="Print the manifest JSON after writing it.")
@@ -218,8 +222,13 @@ def main(argv: list[str] | None = None) -> int:
         refs = [{"nodeId": None, "nodeName": None, "datasetId": dataset_id} for dataset_id in dataset_ids]
         label = dataset_ids[0] if len(dataset_ids) == 1 else "datasets"
     elif parsed.kind == "flow" and parsed.flow_id:
-        recipe = get_recipe(context, parsed.flow_id)
-        refs = workflow_source_dataset_ids(recipe)
+        if args.workflow_json is None:
+            raise SavantAppApiError(
+                "Downloading a flow's source datasets needs the flow's recipe. Fetch it with the "
+                "MCP `fetch` tool on savant://workflow/{flowId}, write it to a JSON file, and pass "
+                "--workflow-json <path>. Or name the datasets directly with --dataset-id."
+            )
+        refs = workflow_source_dataset_ids(load_recipe(args.workflow_json))
         if not refs:
             raise SavantAppApiError("Workflow does not contain source dataset steps.")
     else:

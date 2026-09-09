@@ -27,7 +27,7 @@ Use this to turn a workflow input into a real dataset binding in the target work
 
 For the object model, read `savant-context.md`.
 
-**Discovery and schema come from MCP** — `search(types=["source"])` (name→id) and `fetch(savant://source/{id})` (schema + content type) run off the MCP session and need no `api_enabled`. **Source-matching (`--discover-source-matches`) and dataset *creation* still hit the live app API** (`api_enabled` required): resolve the snapshot with `python3 ../scripts/savant.py session tmp-path savant-capabilities.json` and read it first. If `api_enabled` is false you can still discover, name, and inspect a dataset via MCP, but cannot run source-matching or create anything — say so; don't claim the workspace was fully checked.
+**Discovery, schema and source-matching all come from MCP** — `search(types=["source"])` (name→id) and `fetch(savant://source/{id})` (schema + content type) run off the MCP session and need no `api_enabled`. Source-matching is now local logic fed by that search result, so it needs no API either. **Only dataset *creation* still hits the live app API** (`api_enabled` required): resolve the snapshot with `python3 ../scripts/savant.py session tmp-path savant-capabilities.json` and read it first. If `api_enabled` is false you can still discover, name, inspect and match datasets via MCP, but cannot create anything — say so; don't claim the workspace was fully checked.
 
 ## How do I discover a dataset?
 
@@ -38,7 +38,8 @@ For the object model, read `savant-context.md`.
 **Source-matching against a built flow (API, needs `api_enabled`):**
 
 ```bash
-python3 ../scripts/savant.py app <flow-or-folder-url> --discover-source-matches <workflow.json>  # match a built flow's sources to datasets
+# Match a built flow's sources to datasets: write the MCP search result to sources.json, then
+python3 ../scripts/savant.py dataset discover --workflow-json <workflow.json> --sources-json <sources.json>
 ```
 
 - Datasets are workspace-level objects; a workflow *source* node just binds one by id. To write to (or, when supported, read from) a connected system like OneDrive/Google Drive, see `system-substrate.md`.

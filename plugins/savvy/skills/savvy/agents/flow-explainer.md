@@ -41,16 +41,12 @@ decides, and what it produces — grounded in the actual recipe structure. Not a
 
 2. **Authenticate and export the recipe.** Follow the parent `SKILL.md` Authentication handshake
    (resolve namespace via the `locate` MCP tool — pass the recipe's `savant://workflow/{id}` URI,
-   built from the id after `/flow/` in the URL — then mint credentials with
-   `get-api-credentials`, write the creds file at the `savant.py session tmp-path savant-creds.json`
-   path). Confirm `api_enabled` with `savant.py capabilities`. Then export:
+   built from the id after `/flow/` in the URL.
 
-   ```bash
-   savant.py app "{flowUrl}" --export-recipe \
-     --output-path "$(savant.py session tmp-path flow-explainer recipe.json)"
-   ```
-
-   Read the exported JSON to build the node inventory and graph shape.
+   You need **no credentials and no API access** for this: fetch the flow with the MCP `fetch`
+   tool on `savant://workflow/{flowId}` and write the result to a JSON file, then `Read` it to
+   build the node inventory and graph shape. If your caller already passed you a recipe path,
+   read that. If neither is available, say so and stop rather than trying to reach the API.
 
 3. **Walk the flow.** Reconstruct the declared process from the recipe: inputs (source configs,
    connectors, dataset names), the major process blocks/groups, branches (what each filter

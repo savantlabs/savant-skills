@@ -22,13 +22,13 @@ Do not hand-author gen_ai JSON. `../scripts/workflow/builders.py` owns the shape
 
 ```python
 f.add(nb.gen_ai("Classify", prompt, input_fields=["Description", "Vendor"],
-                provider_id="savant-ai-provider-gzilpzflks",
+                provider_id="savant_anthropic",
                 row_limit=1000))
 ```
 
 Verified facts the builder encodes:
 
-- **`providerId` defaults to Savant Trial when omitted.** When API access is available, resolve the live workspace provider per `../substrate/ai-provider-substrate.md` and ask only if there are multiple providers. Without API, the builder uses the standard Savant Trial id (`savant-ai-provider-gzilpzflks`) instead of asking the user. Any unresolvable provider id is **SILENTLY DROPPED on import** — Savant removes the whole node, so the created flow comes back one node short with the downstream consumer left dangling, and no import error.
+- **`providerId` defaults to Savant Anthropic (`savant_anthropic`) when omitted.** When API access is available, resolve the live workspace provider per `../substrate/ai-provider-substrate.md` and ask only if there are multiple providers. Without API, the builder uses `savant_anthropic` instead of asking the user. Do **not** use the legacy unified id `savant-ai-provider-gzilpzflks` here — the canvas migrates gen_ai nodes off it on load, and the per-vendor ids are what the picker shows. (`fuzzy_match` is the exception: it *requires* the legacy id. See `fuzzy_match.md`.) Any unresolvable provider id is **SILENTLY DROPPED on import** — Savant removes the whole node, so the created flow comes back one node short with the downstream consumer left dangling, and no import error.
 - Config is emitted as `mode: "BATCH"`, `serviceType: "LLMService"`, and `rowLimit` as an **int** (the current UI's "Max New Rows Processed per Run", default 1000; it's a cap in upstream order — one LLM call per row — NOT the prompt-size limit). The same shape applies to a `service` node's `rowLimit` in LLM mode.
 - `inputFields` is plural (array). It must reference real upstream columns — **typos are silently dropped** (the LLM just sees the other fields), so verify against the upstream preview.
 - The output column name is product-determined (not author-controllable); downstream nodes key off the well-known name. Downstream parsing assumes the LLM response matches the schema in `prompt` — if the prompt doesn't specify a structure, downstream `json` flattens fail.
@@ -48,7 +48,7 @@ Prompt / `inputFields` / provider edits trigger LLM re-runs on the next live exe
 
 - **Gen_ai previews cost money.** Every row triggers an LLM call against the configured provider. Don't re-run previews casually.
 - **Prompt changes require a full re-run for verification.** Unlike filter or edit, where Apply refreshes the preview from cached upstream data, gen_ai requires a new LLM call per row. The preview delta is not a cheap verification step for this node.
-- **Unresolved providers are dropped on import.** A node carrying any `providerId` that doesn't resolve in the target workspace is silently removed during import; the canvas does NOT swap it in. Real exports always carry a resolved id (e.g. `savant-ai-provider-gzilpzflks`). Use the live provider when available; otherwise use the Savant Trial default per `../substrate/ai-provider-substrate.md`. If you inspect a flow and a gen_ai node is unexpectedly absent right after creation, an unresolved provider on import is the first thing to check.
+- **Unresolved providers are dropped on import.** A node carrying any `providerId` that doesn't resolve in the target workspace is silently removed during import; the canvas does NOT swap it in. Real exports always carry a resolved id (e.g. `savant_anthropic`, or a workspace's own connection id). Use the live provider when available; otherwise use the `savant_anthropic` default per `../substrate/ai-provider-substrate.md`. If you inspect a flow and a gen_ai node is unexpectedly absent right after creation, an unresolved provider on import is the first thing to check.
 - **One row in, one row out.** Row count does not change through gen_ai; the effect is a new output column carrying the LLM's response (a raw string, or JSON if the prompt requested structure).
 - **Schema drift between prompt and downstream json.** The most common bug on gen_ai nodes is a prompt that asks for one schema and a downstream `json` node that expects another. When a `json` node follows, read both outputs together — the gen_ai raw response and the post-flatten columns. If the flatten produces null columns for values clearly present in the raw string, the prompt's output schema is out of sync with the `json` node's expectations.
 - **`inputFields` typos are silent.** A misspelled column name in `inputFields` is dropped without error; the LLM just sees the other fields. Verify names against the upstream preview.

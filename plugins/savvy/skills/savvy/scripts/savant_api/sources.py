@@ -5,63 +5,20 @@ from pathlib import Path
 from typing import Any
 
 from .httpclient import poll_promise, promise_id_from_response, request, request_multipart
-from .fileio import load_json
 from .models import SavantAppApiError, SavantSessionContext
 
 
-def list_sources(context: SavantSessionContext, *, show_all: bool = True) -> list[dict[str, Any]]:
-    path = "/api/sources?showAll=true" if show_all else "/api/sources"
-    sources = request(context, path)
-    if isinstance(sources, dict) and isinstance(sources.get("slice"), list):
-        sources = sources["slice"]
-    if not isinstance(sources, list):
-        raise SavantAppApiError(f"GET {path} did not return a source array.")
-    return [source for source in sources if isinstance(source, dict)]
-
-
-def workspace_dataset_ids(context: SavantSessionContext) -> set[str] | None:
-    """All dataset ids resolvable in this session's workspace, or None when the listing fails.
-
-    Shared by `workflow create` preflight and `workflow edit --replace-from-build`: dataset ids
-    are workspace-scoped, and any bound id that is not in this set will be silently dropped on
-    import/save. Callers treat None as "check unavailable", never as "no datasets"."""
-    try:
-        return {
-            str(item.get("id"))
-            for item in list_sources(context)
-            if isinstance(item, dict) and item.get("id")
-        }
-    except Exception:  # noqa: BLE001 - resolution check is best-effort; the write still verifies.
-        return None
-
+# Dataset listing lives on the MCP side now. `GET /api/sources` had three consumers here —
+# list_sources, workspace_dataset_ids and discover_workflow_source_matches — and all three took
+# the same shape: read every visible dataset, then match locally. The reading half is the MCP
+# `search` tool with `types: ["source"]`; the matching half stayed put, in workflow/discovery.py
+# (`dataset discover`) and in the create/edit preflights, which now take the search result as
+# `--sources-json`. See savant_api/recipe_input.load_id_set for the id normalization.
 
 # Connector strings for connected systems the skills can read and bind today. Users set these up
 # (and authenticate them) manually in Savant; the skills only READ existing connections, never
 # create or authenticate them. Expand this set as more systems are supported.
 SUPPORTED_SYSTEM_CONNECTORS = {"onedrive", "googledrive"}
-
-
-def discover_workflow_source_matches(
-    context: SavantSessionContext,
-    workflow_json_path: Path,
-    *,
-    show_all: bool = True,
-    candidate_limit: int = 10,
-) -> dict[str, Any]:
-    if not workflow_json_path.exists() or not workflow_json_path.is_file():
-        raise SavantAppApiError(f"Workflow JSON file does not exist: {workflow_json_path}")
-    try:
-        from workflow.discovery import build_discovery_report
-    except ImportError as exc:
-        raise SavantAppApiError("Could not import Savant dataset discovery helper.") from exc
-    workflow = load_json(workflow_json_path)
-    if not isinstance(workflow, dict):
-        raise SavantAppApiError("Workflow JSON must be an object.")
-    return build_discovery_report(
-        workflow,
-        list_sources(context, show_all=show_all),
-        limit=candidate_limit,
-    )
 
 
 def upload_file_async(

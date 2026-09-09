@@ -16,6 +16,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from contracts.ai_provider import SAVANT_MANAGED_PROVIDER_IDS
 from contracts.tracking_tag import is_savvy_tracking_tag, is_versioned_tracking_tag
 from workflow import layout_metrics
 from workflow import layout_model
@@ -278,15 +279,24 @@ def unresolved_ai_provider_nodes(nodes: list[dict], provider_ids: set[str]) -> l
     target workspace. Provider ids are WORKSPACE-scoped (customer-created); an id copied from
     another workspace's export looks real but Savant silently drops the AI node on import.
 
-    Trial providers (`savant_anthropic`/`savant_openai`/`savant_gemini`) are platform-stable
-    and always present in `provider_ids`, so the builder default never false-positives. Nodes
-    with no `providerId` are left to `ai_missing_provider_nodes` (one cause, one message)."""
+    The platform-managed ids (`savant_anthropic`/`savant_openai`/`savant_gemini` and the legacy
+    unified `savant-ai-provider-gzilpzflks`) are exempt: they are NOT workspace-scoped, so they
+    cannot be unresolved here, and `provider_ids` does not necessarily list them. MCP `search`
+    returns the managed providers only when the workspace has no key of its own, and never
+    returns the legacy Fuse id at all — so checking them against that listing would flag every
+    builder-default AI node in a workspace that has its own keys, and every correctly-built
+    `fuzzy_match` node everywhere. Nodes with no `providerId` are left to
+    `ai_missing_provider_nodes` (one cause, one message)."""
     unresolved = []
     for n in nodes:
         if not isinstance(n, dict) or n.get("type") not in AI_OPAQUE_OUTPUT_TYPES:
             continue
         provider_id = (n.get("config") or {}).get("providerId")
-        if isinstance(provider_id, str) and provider_id and provider_id not in provider_ids:
+        if not isinstance(provider_id, str) or not provider_id:
+            continue
+        if provider_id in SAVANT_MANAGED_PROVIDER_IDS:
+            continue
+        if provider_id not in provider_ids:
             unresolved.append(f"{n.get('name') or n.get('id')} ({provider_id})")
     return unresolved
 

@@ -37,9 +37,9 @@ import tempfile
 from pathlib import Path
 
 from savant_api import cli as api
-from savant_api import sources as sources_api
 from savant_api.fileio import workspace_tmp
-from savant_api.recipes import get_recipe, recipe_model_diff, update_workflow_recipe
+from savant_api.recipe_input import assert_flow_id, load_id_set, load_recipe
+from savant_api.recipes import recipe_model_diff, update_workflow_recipe
 from workflow import evidence as workflow_evidence
 from workflow import inspection as savant_inspect
 from workflow import polish as workflow_polish
@@ -84,7 +84,7 @@ def merge_rebuilt_recipe(live: dict, rebuilt: dict) -> dict:
     return merged
 
 
-def _replace_content_blockers(nodes: list[dict], ctx) -> list[str]:
+def _replace_content_blockers(nodes: list[dict], workspace_ids: set[str] | None) -> list[str]:
     """The same pre-write content checks `workflow create` preflight runs, applied before a
     full-content replace: a rebuilt model can carry exactly the same silent-drop hazards as a
     fresh import (placeholder/foreign dataset ids, AI nodes without a provider)."""
@@ -95,7 +95,6 @@ def _replace_content_blockers(nodes: list[dict], ctx) -> list[str]:
     placeholders = vw.source_placeholder_nodes(nodes)
     if placeholders:
         blockers.append(f"placeholder/missing source dataset id on: {', '.join(placeholders)}")
-    workspace_ids = sources_api.workspace_dataset_ids(ctx)
     if workspace_ids:
         unresolved = vw.unresolved_source_dataset_ids(nodes, workspace_ids)
         if unresolved:
@@ -299,12 +298,19 @@ def relocation_documentation_gate(current: dict, proposed: dict) -> list[str]:
     ]
 
 
-def propose(flow_url: str, proposed_path: str | None = None, *, snapshot_path: Path | None = None,
+def propose(flow_url: str, proposed_path: str | None = None, *, current_recipe: Path,
+            snapshot_path: Path | None = None,
+            sources_json: Path | None = None,
             replace_from_build: str | None = None, merged_path: Path | None = None,
             polish: bool = False, polish_autolayout: bool = True, polish_colors: bool = True,
             polished_path: Path | None = None, edit_class: str = "logic",
             accept_stale_docs: bool = False, require_documentation: bool = False):
-    """Phase 1: fetch current recipe, snapshot it, diff vs the proposed recipe, validate. No save.
+    """Phase 1: diff the supplied current recipe vs the proposed recipe, validate. No save.
+
+    `current_recipe` is the live recipe the caller fetched with the MCP `fetch` tool on
+    savant://workflow/{flowId}. It is the pre-edit baseline for the diff, and the file itself IS
+    the rollback snapshot — the caller already holds it, so this route no longer reads the API to
+    re-derive it. Pass the same file to `--confirm` and then to `workflow verify --before-json`.
 
     Exactly one of `proposed_path` (live-shaped edited recipe) or `replace_from_build`
     (creation-shaped builder output, merged onto the live envelope) provides the proposal."""
@@ -313,15 +319,17 @@ def propose(flow_url: str, proposed_path: str | None = None, *, snapshot_path: P
     su, ctx = _resolve_flow(flow_url)
     create_context = same_session_create_context(su.flow_id)
     effective_require_documentation = require_documentation or bool(create_context)
-    current = get_recipe(ctx, su.flow_id)
+    current = load_recipe(current_recipe, flag="--current-recipe")
+    assert_flow_id(current, su.flow_id, flag="--current-recipe")
     if snapshot_path is not None:
-        api.save_json(current, snapshot_path)            # rollback snapshot, captured before any save
+        api.save_json(current, snapshot_path)            # copy of the caller's pre-edit fetch
     replace_blockers: list[str] = []
     if replace_from_build is not None:
         rebuilt = _load(replace_from_build)
         proposed = merge_rebuilt_recipe(current, rebuilt)
         replace_blockers = _replace_content_blockers(
-            [n for n in proposed.get("nodes", []) if isinstance(n, dict)], ctx)
+            [n for n in proposed.get("nodes", []) if isinstance(n, dict)],
+            load_id_set(sources_json, flag="--sources-json"))
         merged_path = merged_path or default_replace_merged_path(su.flow_id)
         api.save_json(proposed, merged_path)
         proposed_path = str(merged_path)
@@ -370,6 +378,10 @@ def propose(flow_url: str, proposed_path: str | None = None, *, snapshot_path: P
         "flowId": su.flow_id,
         "flowUrl": api.ensure_rns(flow_url, ctx.namespace),
         "snapshotPath": str(snapshot_path) if snapshot_path else None,
+        "currentRecipePath": str(current_recipe),
+        # Carried so --confirm can diff against it without re-reading the file. Stripped from the
+        # emitted report below; it is the caller's own input, not a finding.
+        "currentRecipe": current,
         "replaceFromBuild": replace_from_build,
         "mergedRecipePath": str(merged_path) if replace_from_build is not None else None,
         "polishedRecipePath": str(polished_path) if polished_path else None,
@@ -385,44 +397,43 @@ def propose(flow_url: str, proposed_path: str | None = None, *, snapshot_path: P
     return report, ctx, su, proposed
 
 
-def commit(ctx, su, proposed: dict, *, flow_url: str, checkpoints: list[str],
+def commit(ctx, su, proposed: dict, *, before: dict, flow_url: str, current_recipe: Path,
+           checkpoints: list[str],
            expect_columns: list[str] | None, expected_outputs: list[dict] | None = None,
            sample_tier: str, timeout: int,
            post_save_recipe_path: Path | None = None,
            terminal_preview: bool = True,
            block_documentation_gaps: bool = False) -> dict:
-    """Phase 2: save the proposed recipe, re-fetch, then run the shared Inspector on chosen nodes."""
-    update_report = update_workflow_recipe(ctx, su.flow_id, proposed)
-    evidence = workflow_evidence.collect_post_write_evidence(
-        ctx=ctx,
-        flow_url=flow_url,
-        flow_id=su.flow_id,
-        operation="edit",
-        imported_path=None,
-        expect_columns=expect_columns,
-        expected_outputs=expected_outputs,
-        checkpoints=checkpoints,
-        sample_tier=sample_tier,
-        timeout=timeout,
-        terminal_preview=terminal_preview,
-        force_analyze=True,                              # recipe saves can leave old Ready previews cached
-        post_write_recipe_path=post_save_recipe_path,
-        block_documentation_gaps=block_documentation_gaps,
+    """Phase 2: save the proposed recipe. Verification is a separate step.
+
+    Proving the save persisted needs the recipe read back afterwards, which this toolchain no
+    longer does. So commit saves and then reports exactly what to run: an MCP fetch, then
+    `workflow verify --operation edit --before-json <the pre-edit recipe>`, which runs the same
+    before/after model diff that used to happen here. **An edit is not persisted-verified until
+    that returns ok.**"""
+    update_report = update_workflow_recipe(ctx, su.flow_id, proposed, before=before)
+    after_json = workflow_evidence.default_post_write_recipe_path(su.flow_id, "edit")
+    verify_cmd = (
+        f"python3 savant.py workflow verify --operation edit --workflow-json {after_json} "
+        f"--expect-flow-id {su.flow_id} --before-json {current_recipe}"
     )
-    refetched = evidence.pop("refetchedRecipe")
-    persisted = recipe_model_diff(proposed, refetched)   # residual node-field diffs after save (normalization)
+    inspect_cmd = (
+        f"python3 savant.py workflow inspect {flow_url} --recipe-json {after_json}"
+    )
     return {
         "phase": "commit",
         "flowId": su.flow_id,
         "flowUrl": api.ensure_rns(flow_url, ctx.namespace),
         "update": update_report,
-        "persistedDiff": persisted,
-        "postSaveRecipePath": evidence.get("postSaveRecipePath"),
-        "inspect": evidence.get("inspect"),
+        "verified": False,
+        "status": "saved-unverified",
         "createContinuation": same_session_create_context(su.flow_id),
         "documentationRequired": block_documentation_gaps,
-        "evidence": {k: v for k, v in evidence.items() if k not in {"postSaveRecipePath", "inspect"}},
-        "status": "verified" if evidence.get("ok") else "saved-with-issues",
+        "nextSteps": {
+            "1_fetch": f"MCP `fetch` on savant://workflow/{su.flow_id}, written to {after_json}",
+            "2_verify": verify_cmd,
+            "3_inspect": inspect_cmd,
+        },
     }
 
 
@@ -440,10 +451,6 @@ def default_replace_merged_path(flow_id: str) -> Path:
 
 def default_polished_recipe_path(flow_id: str) -> Path:
     return workspace_tmp("workflow-edits", f"{flow_id}.proposed-polished.json")
-
-
-def default_post_save_recipe_path(flow_id: str) -> Path:
-    return workflow_evidence.default_post_write_recipe_path(flow_id, "edit")
 
 
 def main(argv=None) -> int:
@@ -476,8 +483,16 @@ def main(argv=None) -> int:
                         "same edit. 'fix': a declared behavior-preserving bug fix — staleness items become "
                         "informational notes, and the declaration is recorded in the report. Declare 'fix' "
                         "ONLY when business meaning, outputs, and grain are unchanged.")
+    p.add_argument("--current-recipe", type=Path, required=True,
+                   help="The flow's live recipe, fetched with the MCP `fetch` tool on "
+                        "savant://workflow/{flowId}. It is the pre-edit diff baseline AND the "
+                        "rollback snapshot; pass the same file to `workflow verify --before-json`.")
+    p.add_argument("--sources-json", type=Path,
+                   help="MCP `search` result for types: [\"source\"], used by --replace-from-build "
+                        "to catch source dataset ids that do not resolve in this workspace. Omit to "
+                        "skip that check.")
     p.add_argument("--confirm", action="store_true",
-                   help="Proceed past propose to save + verify. Set ONLY after the user confirmed the diff in chat.")
+                   help="Proceed past propose to save. Set ONLY after the user confirmed the diff in chat.")
     p.add_argument("--checkpoint", action="append", default=[],
                    help="Node display name to Analyze in the verify phase (repeatable). Default to the edit's "
                         "affected nodes; choose deliberately — Analyzing AI nodes costs money.")
@@ -488,10 +503,6 @@ def main(argv=None) -> int:
                    help="On --confirm, skip the default terminal output preview and inspect only named checkpoints/contracts.")
     p.add_argument("--sample-tier", default="1k")
     p.add_argument("--timeout-seconds", type=int, default=120)
-    p.add_argument("--post-save-recipe-path", type=Path,
-                   help="Override where --confirm writes the re-fetched post-save workflow JSON.")
-    p.add_argument("--no-post-save-recipe", action="store_true",
-                   help="On --confirm, skip writing the re-fetched post-save workflow JSON.")
     p.add_argument("--accept-stale-docs", action="store_true",
                    help="Deliberately override the relocation documentation gate (steps moved "
                         "between groups without group/workflow description updates).")
@@ -508,6 +519,8 @@ def main(argv=None) -> int:
     report, ctx, su, proposed = propose(
         args.flow_url,
         args.proposed_recipe,
+        current_recipe=args.current_recipe,
+        sources_json=args.sources_json,
         replace_from_build=args.replace_from_build,
         snapshot_path=snapshot_path,
         polish=args.polish,
@@ -521,7 +534,8 @@ def main(argv=None) -> int:
 
     def emit(rep):
         phase = "commit" if rep.get("phase") == "commit" else "propose"
-        api.save_json(rep, args.output_path or default_output_path(su.flow_id, phase))
+        api.save_json({k: v for k, v in rep.items() if k != "currentRecipe"},
+                      args.output_path or default_output_path(su.flow_id, phase))
 
     if report["blocked"]:
         emit(report)
@@ -545,26 +559,25 @@ def main(argv=None) -> int:
 
     expect = [c.strip() for c in args.expect_columns.split(",")] if args.expect_columns else None
     expected_outputs = savant_inspect.load_expected_outputs(args.expected_outputs_json)
-    post_save_recipe_path = (
-        None if args.no_post_save_recipe else args.post_save_recipe_path or default_post_save_recipe_path(su.flow_id)
-    )
 
-    out = commit(ctx, su, proposed, flow_url=args.flow_url, checkpoints=args.checkpoint,
+    out = commit(ctx, su, proposed, before=report["currentRecipe"], flow_url=args.flow_url,
+                 current_recipe=args.current_recipe, checkpoints=args.checkpoint,
                  expect_columns=expect, expected_outputs=expected_outputs,
                  sample_tier=args.sample_tier, timeout=args.timeout_seconds,
-                 post_save_recipe_path=post_save_recipe_path,
                  terminal_preview=not args.no_terminal_preview,
                  block_documentation_gaps=report.get("documentationRequired", False))
     out["documentation"] = report.get("documentation") or []
     emit(out)
-    print(f"EDIT: {out['status']} — {out['flowUrl']}")
-    if out.get("postSaveRecipePath"):
-        print(f"  [ok ] post-save-workflow-json: {out['postSaveRecipePath']}")
+    print(f"EDIT: saved, NOT YET VERIFIED — {out['flowUrl']}")
     for w in out["documentation"]:
         print(f"  [{w['severity']}] documentation: {w['message']}")
-    summary = dict(out.get("inspect") or {})
-    savant_inspect.print_summary_lines(summary)
-    return 0 if out["status"] == "verified" else 1
+    print("")
+    print("The save returned, but nothing has confirmed it persisted yet.")
+    print("Run these before reporting the edit as applied:")
+    print(f"  1. {out['nextSteps']['1_fetch']}")
+    print(f"  2. {out['nextSteps']['2_verify']}")
+    print(f"  3. {out['nextSteps']['3_inspect']}")
+    return 0
 
 
 if __name__ == "__main__":

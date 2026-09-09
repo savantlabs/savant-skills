@@ -7,9 +7,9 @@
 Applier takes a workflow that exists *as intent* — either a local workflow JSON, or a change the user wants to an existing live flow — and makes it real and verified in the Savant app. It has exactly two modes:
 
 - **Create** — the flow does **not** exist yet. Import a complete workflow JSON into an explicit folder (`POST /api/recipes/import`), which mints a **new** flowId, then verify it renders, runs on its bound data, and is well organized.
-- **Edit** — the flow **already** exists (you have a URL or flowId). Make a narrow, user-confirmed change in place via recipe save (`PUT /api/recipes`) on the **same flowId**, with a rollback snapshot and persistence verification.
+- **Edit** — the flow **already** exists (you have a URL or flowId). Make a narrow, user-confirmed change in place via recipe save (`PUT /api/recipes`) on the **same flowId**, with a rollback snapshot and a `workflow verify` persistence check.
 
-Applier always works against the live API and confirms the edit scope before writing. It routes JSON-generation defects to **author mode** and read-only behavior questions to **inspect mode**. It reuses the shared verification harness (`savant.py workflow inspect`) after every create and every edit.
+Applier always works against the live API and confirms the edit scope before writing. It routes JSON-generation defects to **author mode** and read-only behavior questions to **inspect mode**. It reuses the shared verification harness (`savant.py workflow verify`, then `savant.py workflow inspect`) after every create and every edit.
 
 Write user-facing replies with the business-user response rules loaded at session start.
 
@@ -38,6 +38,7 @@ This skill calls the Savant web-app API directly, but it never mints its own cre
 
    (`apiBaseUrl` may end in `/api`; the shell normalizes it.) **Do not set, invent, or export `SAVANT_AI_SESSION_ID`** — the session id is derived from the runtime automatically. *Optional file form (your discretion):* write the **`get-api-credentials` response** to the path from `savant.py session tmp-path savant-creds.json` and set `SAVANT_CREDS_FILE` to it — the response object is the file format. That path is user-private, OS-reaped temp outside the repo; never write credentials elsewhere (repo, `$HOME`, a `.env`) or keep them past the session.
 4. **On a 401**, the token has expired — call `get-api-credentials` again, re-supply the credentials, then retry. Do not re-parse or retry by hand beyond that.
+5. **If re-minting doesn't help** — the MCP tools aren't callable, `get-api-credentials` returns not-connected, or a 401 persists after a fresh mint — the `savvy-*` connector is disconnected. Do **not** build an `oauth2/authorize` URL or ask the user to paste back a `localhost/callback` URL; that callback is dead once the connector drops. Tell them plainly to reconnect their Savant connector, then stop and wait.
 
 **Never echo the token (or the creds file's contents) into a user-facing reply.**
 
@@ -49,7 +50,7 @@ There is no browser or rendered-canvas verification. The diagram is laid out in 
 
 With credentials supplied (per Authentication above), confirm API access: resolve the snapshot path with `savant.py session tmp-path savant-capabilities.json`, run `savant.py capabilities --output-path <resolved-capability-path>`, and proceed only when `api_enabled: true`. If it is false, stop — Applier cannot create or edit without live API access.
 
-The deterministic helpers are the normal execution surface: `savant.py workflow create` owns import + create verification; `savant.py workflow edit` owns snapshot, diff, save, persistence verification, and affected-scope inspection; `savant.py workflow inspect` is the shared verify harness both modes call. Use `savant.py app` only for targeted recipe orientation the orchestrators don't provide.
+The deterministic helpers are the normal execution surface: `savant.py workflow create` owns import + create verification; `savant.py workflow edit` owns diff and save; `savant.py workflow verify` owns the post-write checks for both modes (folder placement, node persistence, the before/after diff); `savant.py workflow inspect` is the shared data-evidence harness. Recipes come from MCP `fetch`, not from a CLI route.
 
 ---
 
@@ -93,7 +94,7 @@ Stop on any failure and follow the gate's `nextActions`. The later `workflow cre
 
 ## Create and confirm
 
-Use `workflow create` as the standard create path. The target folder is given as a **folder id** (`--folder-id`), or `--folder-id home` for the Home folder (namespace root); the workflow is created in the authenticated session's namespace — the same namespace `search`/`fetch` operate in — so find the folder id via MCP `search`/`fetch` on the `folder` entity (and make sure the session is already switched to that folder's workspace). `--confirmed-namespace` is required: pass the namespace of the **user-confirmed** destination workspace (the handoff's `context_confirmation.namespace`) — import hard-blocks if the session is in any other namespace, so a session that drifted (or was switched) away from the workspace the user named cannot create there. Always run it once without `--confirm-import` first — that pass validates the JSON, checks `api_enabled`, verifies the confirmed namespace, confirms bound dataset ids resolve in the target workspace, and surfaces blockers (missing AI providers, placeholder/unresolved dataset ids, same-session duplicates). The folder id itself is verified at import: `workflow create` reads the created workflow back and hard-fails unless it lands in the requested folder. Then rerun with `--confirm-import`:
+Use `workflow create` as the standard create path. The target folder is given as a **folder id** (`--folder-id`), or `--folder-id home` for the Home folder (namespace root); the workflow is created in the authenticated session's namespace — the same namespace `search`/`fetch` operate in — so find the folder id via MCP `search`/`fetch` on the `folder` entity (and make sure the session is already switched to that folder's workspace). `--confirmed-namespace` is required: pass the namespace of the **user-confirmed** destination workspace (the handoff's `context_confirmation.namespace`) — import hard-blocks if the session is in any other namespace, so a session that drifted (or was switched) away from the workspace the user named cannot create there. Always run it once without `--confirm-import` first — that pass validates the JSON, checks `api_enabled`, verifies the confirmed namespace, confirms bound dataset ids resolve in the target workspace, and surfaces blockers (missing AI providers, placeholder/unresolved dataset ids, same-session duplicates). The folder id itself is verified *after* import, by `workflow verify --operation create --expect-folder-id`, which hard-fails unless the created workflow reports the requested folder. Then rerun with `--confirm-import`:
 
 - **Continuation of an approved Author plan:** if the dry-run pass is clean, proceed straight to `--confirm-import` — the plan approval already authorized creation, so don't pause for a fresh "shall I create it?" prompt. Pause and surface to the user **only** if the dry-run reports a blocker that needs a decision. A missing destination *folder* answer is not such a blocker — it resolves to the Home folder of the confirmed workspace, announced. A missing or retargeted destination *workspace* is: only an explicit user answer naming the workspace resolves it, never a choice of your own.
 - **No prior plan approval** (bare JSON handed in, or destination still unconfirmed): present the dry-run summary and rerun with `--confirm-import` only after the user approves.
@@ -101,19 +102,42 @@ Use `workflow create` as the standard create path. The target folder is given as
 ```bash
 CREATE_REPORT="$(savant.py session tmp-path "<task-name>" create.json)"
 
+# Preflight. --sources-json / --providers-json are the MCP `search` results for
+# types: ["source"] and ["ai_provider"]; they catch bound ids that do not resolve in this
+# workspace, which import drops SILENTLY. Omitting them skips those checks.
 savant.py workflow create --folder-id <folderId> --confirmed-namespace <namespace> \
   --import-json <workflow.json> \
+  --sources-json <sources.json> --providers-json <providers.json> \
   --expected-outputs-json <builder_to_creator.handoff.json> --output-path "$CREATE_REPORT"
 
 savant.py workflow create --folder-id <folderId> --confirmed-namespace <namespace> \
   --import-json <workflow.json> \
+  --sources-json <sources.json> --providers-json <providers.json> \
   --confirm-import --expected-outputs-json <builder_to_creator.handoff.json> \
   --checkpoint "<stage>" --output-path "$CREATE_REPORT"
 ```
 
+**The create command no longer verifies itself.** It imports and returns `flowId`/`flowUrl` with
+`status: "created-unverified"`, then prints the two commands to run next. Verification needs the
+created recipe read back, and the toolchain does not read recipes — you do, with MCP `fetch`:
+
+```bash
+AFTER="$(savant.py session tmp-path "<task-name>" after-create.json)"
+# Write the MCP `fetch` result for savant://workflow/{flowId} to "$AFTER", then:
+
+savant.py workflow verify --operation create --workflow-json "$AFTER" \
+  --expect-flow-id <flowId> --expect-folder-id <folderId> \
+  --source-json <workflow.json> --block-documentation-gaps
+```
+
+`workflow verify` runs the folder-placement check and the node-persistence check that used to run
+inside create, plus file-based validation. **It exits non-zero on failure. A create is not
+reportable as created until it exits 0** — an import can return a flow that landed in the wrong
+folder, or one node short because an AI provider did not resolve, and this is what catches both.
+
 `--expected-outputs-json` can point at the Builder-to-Creator handoff; the shared inspector reads `builder_preflight.output_destination_plan.outputs` and verifies each final output separately. The older `--expect-columns` flag is only for simple single-output checks.
 
-The command validates the JSON, checks `api_enabled` for the session, blocks unless the session namespace equals the user-confirmed `--confirmed-namespace`, resolves the folder id and confirms it lives in the session namespace, reports same-session existing creates for the same workflow name/folder during preflight, blocks missing AI providers or placeholder source dataset ids, blocks same-session duplicate imports unless explicitly overridden, imports after confirmation, confirms the created recipe persisted, and returns the created `flowUrl`. Capture that URL immediately; it is required delivery evidence. It also verifies the created workflow's folder id equals the resolved target folder id — a different folder is a hard failure, even if the workflow exists and validates.
+The command validates the JSON, checks `api_enabled` for the session, blocks unless the session namespace equals the user-confirmed `--confirmed-namespace`, resolves the folder id and confirms it lives in the session namespace, reports same-session existing creates for the same workflow name/folder during preflight, blocks missing AI providers or placeholder source dataset ids, blocks same-session duplicate imports unless explicitly overridden, imports after confirmation, and returns the created `flowUrl`. Capture that URL immediately; it is required delivery evidence. Whether the workflow persisted and landed in the requested folder is answered by `workflow verify` — a different folder is a hard failure there, even if the workflow exists and validates.
 
 There is no rendered visual verification: a confirmed create is judged on persistence, structure, data evidence, and the deterministic layout metrics. Do not re-import to "complete" a layout check, and never claim a rendered layout pass that did not run.
 
@@ -126,7 +150,7 @@ For extra named checkpoints after creation:
 ```bash
 INSPECT_REPORT="$(savant.py session tmp-path "<task-name>" inspect.json)"
 
-savant.py workflow inspect "{flowUrl}" --imported-json <workflow.json> \
+savant.py workflow inspect "{flowUrl}" --recipe-json "$AFTER" --imported-json <workflow.json> \
   --expected-outputs-json <builder_to_creator.handoff.json> --checkpoint "<stage>" \
   --output-path "$INSPECT_REPORT"
 ```
@@ -196,7 +220,7 @@ These rules are non-negotiable. If one of them would be violated, stop and surfa
 3. **Never claim success from HTTP 200 alone.** After API save, re-fetch the recipe and confirm the expected diff persisted.
 4. **Never operate on an undocumented recipe field.** If a config field does not map to documented JSON behavior in the registry/component notes, stop.
 5. **Never perform a topology edit without a documented API recipe mutation and a precise target graph.** Adding, deleting, reparenting, or rewiring nodes is allowed only when the operation has been proven end-to-end through the API helper and the requested upstream/downstream shape is unambiguous. Otherwise use rebuild-in-place (below) or stop and surface the limitation.
-   - **Proven in-place topology edits (use recipe save, never re-import):** (a) **adding a node** of a documented component type, wired onto an existing node's outlet (linear extension or an added branch); (b) **removing a leaf node** and cleaning the dangling target off its parent's outlet; (c) **inserting a node mid-edge** between two connected nodes **when it preserves the downstream schema**; and (d) **removing or replacing one single-input/single-output mid-graph node** with an explicit rehydration plan — redirect the sole upstream outlet to the sole downstream node, fix the downstream inlet, clean group/text membership, and reconcile downstream schema with documented config edits (e.g. collapsing a create/rename Transform and a hide/reorder Transform into one). All four were verified live: the `PUT /api/recipes` save kept the same flowId and the re-fetched `recipe_model_diff` matched the requested `added`/`removed`/`changed` set. Drive these through the normal loop (snapshot → dry-run `recipe_model_diff` → confirm → save → re-fetch) and assert the persisted diff with `assert_expected_model_diff`. When collapsing leaves a group purposeless, re-evaluate it under confirmed Optimize scope.
+   - **Proven in-place topology edits (use recipe save, never re-import):** (a) **adding a node** of a documented component type, wired onto an existing node's outlet (linear extension or an added branch); (b) **removing a leaf node** and cleaning the dangling target off its parent's outlet; (c) **inserting a node mid-edge** between two connected nodes **when it preserves the downstream schema**; and (d) **removing or replacing one single-input/single-output mid-graph node** with an explicit rehydration plan — redirect the sole upstream outlet to the sole downstream node, fix the downstream inlet, clean group/text membership, and reconcile downstream schema with documented config edits (e.g. collapsing a create/rename Transform and a hide/reorder Transform into one). All four were verified live: the `PUT /api/recipes` save kept the same flowId and the re-fetched `recipe_model_diff` matched the requested `added`/`removed`/`changed` set. Drive these through the normal loop (fetch → dry-run `recipe_model_diff` → confirm → save → re-fetch → `workflow verify`) and assert the persisted diff with `assert_expected_model_diff`. When collapsing leaves a group purposeless, re-evaluate it under confirmed Optimize scope.
    - **Beyond the proven set — rebuild in place, do not re-import:** for non-linear/arbitrary rewiring, multi-input/multi-output mid-graph removal, between-node connection replacement, or any larger reshape, rebuild the flow with **author mode** and apply it to the **same flow** via `savant.py workflow edit --replace-from-build <rebuilt.json> --confirm`. This merges the creation-shaped rebuild onto the live identity envelope (same flowId, folder, namespace, name — a rebuild never renames), runs the create-preflight content blockers, and goes through the normal confirm→save→verify loop (verified live 2026-06-10: a 41-node replace persisted on the same flowId). A fresh import is a last resort, used only if the in-place save itself fails and the user confirms a replacement. (Replacing the *dataset* behind an existing source is a separate supported task — see the Supported table and hard rule 10.)
 6. **Prefer API recipe reads/writes.** For canvas layout, mutate recipe positions/config through the API helper whenever the operation maps to node position/config fields. There is no rendered-canvas verification; rely on the recipe diff and the deterministic layout metrics.
 7. **Clarify business meaning before changing it.** If an edit changes output grain, amount basis, source-of-truth precedence, fallback behavior, join preservation, filter semantics, summarization grain, review flags, or final destination columns, ask one narrow question before proposing the diff.
@@ -218,7 +242,7 @@ Routine editor work should be represented as a dry-run recipe diff before saving
 | Rename group title | Resolve the text node inside the group and edit that text node; the group's own `name` is not user-facing. |
 | Edit workflow name / description / tags | Flow metadata is NOT written by the recipe save (`PUT /api/recipes` only updates nodes/parameters). Update it with `savant.py app --save-metadata-from <file> --confirm-live-save` (which `PUT`s the full flow object to `/api/recipes/{flowId}/metadata`). The `description` is **Markdown** — never HTML. Apply the tracking-tag refresh here too (rule 8). |
 | Documented component config change | Mutate the component config only when the JSON behavior is documented in the registry/component notes and can be verified by re-fetch plus node-output inspection when data behavior changes. |
-| Add a node (linear extension or branch) | Append a documented component-type node and wire it onto an existing node's outlet via recipe save. Confirm the re-fetched `recipe_model_diff` shows the expected `added` node + the parent's `outlets` change. Do NOT re-import for this. |
+| Add a node (linear extension or branch) | Append a documented component-type node and wire it onto an existing node's outlet via recipe save. Confirm the re-fetched `recipe_model_diff` (from `workflow verify --before-json`) shows the expected `added` node + the parent's `outlets` change. Do NOT re-import for this. |
 | Remove a leaf node | Drop the node and remove the dangling target from its parent's outlet via recipe save; confirm `recipe_model_diff` shows the expected `removed` node. |
 | Remove/replace a single-in/single-out mid-graph node | Apply Hard rule 5d with a rehydration plan: redirect the sole upstream outlet to the sole downstream node, fix the inlet, clean group/text membership, reconcile downstream schema, and verify downstream output. (Multi-input/multi-output mid-graph removal is not proven — rebuild in place.) |
 | Replace the dataset behind a source | Repoint the source's `config.id`/`connector` at a different dataset — `api_enabled` gated. Never a bare swap: capture old + new schema, audit downstream column references, auto-reconcile mechanical id mismatches, surface genuine column gaps for a decision, then verify downstream after save. Rebuild in place only if the downstream can't be reconciled into a runnable flow. |
@@ -243,12 +267,13 @@ The deterministic loop is `savant.py workflow edit`, two phases with the scope g
 
 ### 1. Parse the flow URL and run the deterministic precheck when needed
 
-Parse the Savant flow URL, mint API credentials (see Authentication), and fetch the current recipe through `savant.py app`. Use the API recipe as the primary orientation source (name/description, node inventory, display names/types/groups/text/outlets, inlets/outlets/edge targets, positions/group dimensions/text config/component config).
+Parse the Savant flow URL, then fetch the current recipe with the MCP `fetch` tool on `savant://workflow/{flowId}` and write it to a file — you need that file for the whole edit: it is the propose baseline, the rollback snapshot, and the `workflow verify --before-json` argument. Mint API credentials (see Authentication) for the save itself. Use the fetched recipe as the primary orientation source (name/description, node inventory, display names/types/groups/text/outlets, inlets/outlets/edge targets, positions/group dimensions/text config/component config).
 
 For any fix/debug/status-adjacent edit, run the shared precheck before target planning:
 
 ```bash
 savant.py workflow health "{flowUrl}" \
+  --workflow-json "$CURRENT" --sources-json <sources.json> \
   --output-path "$(savant.py session tmp-path "<task-name>" health.json)"
 ```
 
@@ -269,17 +294,20 @@ Form the change with the deterministic builders — `node_builders` `*_update` f
 ### 5. Propose — `savant.py workflow edit` (phase 1, no save)
 
 ```bash
+CURRENT="$(savant.py session tmp-path "<task-name>" current.json)"
 PROPOSED="$(savant.py session tmp-path "<task-name>" proposed.json)"
 SNAPSHOT="$(savant.py session tmp-path "<task-name>" snapshot.json)"
 PROPOSE_REPORT="$(savant.py session tmp-path "<task-name>" edit-propose.json)"
+# Write the MCP `fetch` result for savant://workflow/{flowId} to "$CURRENT" first.
 
 savant.py workflow edit "{flowUrl}" \
+  --current-recipe "$CURRENT" \
   --proposed-recipe "$PROPOSED" \
   --snapshot "$SNAPSHOT" \
   --output-path "$PROPOSE_REPORT"
 ```
 
-The orchestrator captures the rollback snapshot, computes `recipe_model_diff(current, proposed)`, and validates — returning the diff + validation. It does **not** save. If it reports validation errors, fix the proposed recipe and re-propose.
+`--current-recipe` is required and is the pre-edit baseline: the orchestrator diffs it against the proposal, refuses a recipe whose flow id is not the target flow, and copies it to `--snapshot` as the rollback. It validates and returns the diff + validation, and does **not** save. If it reports validation errors, fix the proposed recipe and re-propose. Add `--sources-json` when using `--replace-from-build`, so unresolvable dataset ids are caught before the save.
 
 ### 6. Resolve gaps and confirm scope when needed
 
@@ -293,14 +321,27 @@ Once the scope is confirmed or implicit, re-run with `--confirm` and the nodes t
 COMMIT_REPORT="$(savant.py session tmp-path "<task-name>" edit-commit.json)"
 
 savant.py workflow edit "{flowUrl}" \
+  --current-recipe "$CURRENT" \
   --proposed-recipe "$PROPOSED" --confirm \
   --edit-class fix \
-  --checkpoint "<affected node>" [--checkpoint ...] [--expect-columns "Col A,Col B"] \
-  [--expected-outputs-json <handoff.json>] [--require-documentation] \
   --output-path "$COMMIT_REPORT"
 ```
 
-It saves in place (same flowId), re-fetches, reports the persisted diff, and runs the **shared inspector** (`workflow.inspection.inspect`) over the nodes you name: runtime-smoke first, then node-ok, row-sanity, and the output-contract when `--expect-columns` is given. HTTP 200 is not success — the inspector verdict is. If runtime-smoke fails, stop on that node before downstream previews. Default the checkpoints to the affected-node set `recipe_edit` returned; choose deliberately, because Analyzing AI nodes costs money. For a visual-only edit, pass no checkpoints and rely on the persisted diff plus the deterministic layout metrics (there is no rendered-canvas inspection).
+It saves in place (same flowId) and returns `status: "saved-unverified"`. **HTTP 200 is not success, and neither is this** — a save can return 200 and persist nothing. Re-fetch and verify:
+
+```bash
+AFTER="$(savant.py session tmp-path "<task-name>" after-save.json)"
+# Write the MCP `fetch` result for savant://workflow/{flowId} to "$AFTER", then:
+
+savant.py workflow verify --operation edit --workflow-json "$AFTER" \
+  --expect-flow-id <flowId> --before-json "$CURRENT"
+
+savant.py workflow inspect "{flowUrl}" --recipe-json "$AFTER" \
+  --checkpoint "<affected node>" [--checkpoint ...] [--expect-columns "Col A,Col B"] \
+  [--expected-outputs-json <handoff.json>]
+```
+
+`workflow verify` diffs `$CURRENT` against `$AFTER` and **fails if the read-back is identical to the pre-edit recipe** — that is the "did the save actually land" check, and it exits non-zero. `workflow inspect` then runs the **shared inspector** over the nodes you name: runtime-smoke first, then node-ok, row-sanity, and the output-contract when `--expect-columns` is given. If runtime-smoke fails, stop on that node before downstream previews. Default the checkpoints to the affected-node set `recipe_edit` returned; choose deliberately, because Analyzing AI nodes costs money. For a visual-only edit, pass no checkpoints and rely on the persisted diff plus the deterministic layout metrics (there is no rendered-canvas inspection).
 
 ### 8. Check layout quality when visual quality changed
 
@@ -308,13 +349,13 @@ If the edit changes layout, text, group geometry, labels, or topology, rely on t
 
 ### 9. Rollback
 
-Rollback is a live edit too. If the user asks to revert, propose restoring the saved recipe snapshot, wait for explicit confirmation, save it through the API, re-fetch, and verify the workflow returned to the captured state.
+Rollback is a live edit too. If the user asks to revert, propose restoring the saved recipe snapshot (the `--current-recipe` file from before the edit), wait for explicit confirmation, save it through the API, then re-fetch with MCP `fetch` and run `workflow verify --operation edit --before-json <the post-edit recipe>` to confirm the workflow returned to the captured state.
 
 ## Definition of done (edit)
 
-An edit is done when: the edit scope was explicit or implicit in the user's request and a rollback snapshot was captured before saving; the API save persisted (the re-fetched `recipe_model_diff` equals the proposed diff — for topology edits, `assert_expected_model_diff` passes — on the same flowId); any step whose configuration changed has a refreshed (or re-verified) description; and the affected-scope verification passed (node-output evidence when logic changed, deterministic layout metrics when anything visual changed).
+An edit is done when: the edit scope was explicit or implicit in the user's request and a rollback snapshot was captured before saving; the API save persisted (`workflow verify --operation edit` exited 0, meaning the re-fetched recipe differs from the pre-edit one on the same flowId — for topology edits, `assert_expected_model_diff` passes); any step whose configuration changed has a refreshed (or re-verified) description; and the affected-scope verification passed (node-output evidence when logic changed, deterministic layout metrics when anything visual changed).
 
-The deterministic signal is `savant.py workflow edit --confirm` returning `verified`, followed by `savant.py validate stage --role editor --gate done <edit-commit.json>` passing. Report what changed, that a rollback snapshot exists, and any verification out of scope. Read `definition-of-done.md` only when the completion claim is broader than the narrow edit.
+The deterministic signal is `workflow verify --operation edit` exiting 0, followed by `savant.py validate stage --role editor --gate done <edit-commit.json>` passing. `workflow edit --confirm` alone reports `saved-unverified` and is not the signal. Report what changed, that a rollback snapshot exists, and any verification out of scope. Read `definition-of-done.md` only when the completion claim is broader than the narrow edit.
 
 ---
 
@@ -331,7 +372,7 @@ After any routed fix, re-run the affected checks before judging done. Do not use
 ## Working with other Savant skills
 
 - **author mode** generates the workflow JSON Applier imports, and is the rebuild path for edits Applier can't do inline (unproven topology, unsupported settings). The standard refusal message points the user there.
-- **inspect mode** is the read counterpart — it reads, explains, and exports flows. When the user's question is about behavior or data rather than a change, hand off. Common pattern: inspector identifies a problem → Applier (Edit) proposes a fix → inspector verifies downstream. Inspector also owns JSON export: before a substantial edit, proactively offer "Want me to export the current JSON first, as a full-flow rollback?" (the Inspector's `app --export-recipe`) — but let the user decide.
+- **inspect mode** is the read counterpart — it reads, explains, and exports flows. When the user's question is about behavior or data rather than a change, hand off. Common pattern: inspector identifies a problem → Applier (Edit) proposes a fix → inspector verifies downstream. Inspector also owns JSON export: before a substantial edit, proactively offer "Want me to save the current JSON first, as a full-flow rollback?" (MCP `fetch` on `savant://workflow/{flowId}`, written to a file) — but let the user decide. An edit needs that file anyway: `workflow edit --current-recipe` takes it as the diff baseline, and it doubles as the rollback snapshot.
 - **Deletion is out of scope.** Applier never deletes anything — not a node, not a flow, not an edge. Ask the user to delete in the Savant app.
 - The **`../../references/components/` library** holds per-type API guidance. Read `{type}.md` before operating on a node of that type. If the guidance or `../../references/registry/components/{type}.json` does not document the requested JSON mutation, refuse that node type.
 

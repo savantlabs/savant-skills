@@ -59,7 +59,7 @@ Child membership is read the same way: a node belongs to a group when its `canva
 
 ## API edit support
 
-Group edits are supported only when they can be represented as documented recipe JSON changes, such as position, size, color, and title text-node fields. Use `savant.py app` to save the recipe diff and re-fetch it for persistence verification. Do not use mouse dragging, DOM edits, or store dispatches as live edit mechanisms. After an API save, reload and visually verify rendered group layout, child containment, connector routing, and text clipping. Extract-from-group, creating/deleting groups, and moving nodes into groups are unsupported unless an exact API recipe mutation is documented; otherwise use the downloader -> builder -> creator rebuild path.
+Group edits are supported only when they can be represented as documented recipe JSON changes, such as position, size, color, and title text-node fields. Use `savant.py workflow edit` to save the recipe diff, then re-fetch with MCP `fetch` and run `savant.py workflow verify --operation edit --before-json` for persistence verification. Do not use mouse dragging, DOM edits, or store dispatches as live edit mechanisms. After an API save, reload and visually verify rendered group layout, child containment, connector routing, and text clipping. Extract-from-group, creating/deleting groups, and moving nodes into groups are unsupported unless an exact API recipe mutation is documented; otherwise use the downloader -> builder -> creator rebuild path.
 
 ## Gotchas
 

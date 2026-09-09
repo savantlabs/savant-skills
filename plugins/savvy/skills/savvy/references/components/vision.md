@@ -18,12 +18,12 @@ Do not hand-author vision JSON. `../scripts/workflow/builders.py` owns the shape
 
 ```python
 f.add(nb.vision("Extract Invoice", prompt, input_field="content",
-                provider_id="savant-ai-provider-gzilpzflks"))
+                provider_id="savant_anthropic"))
 ```
 
 Verified facts the builder encodes:
 
-- **`providerId` defaults to Savant Trial when omitted.** When API access is available, resolve the live workspace provider per `../substrate/ai-provider-substrate.md` and ask only if there are multiple providers. Without API, the builder uses the standard Savant Trial id (`savant-ai-provider-gzilpzflks`) instead of asking the user. Any unresolvable provider id is **SILENTLY DROPPED on import** — Savant removes the whole node, not just the provider.
+- **`providerId` defaults to Savant Anthropic (`savant_anthropic`) when omitted.** When API access is available, resolve the live workspace provider per `../substrate/ai-provider-substrate.md` and ask only if there are multiple providers. Without API, the builder uses `savant_anthropic` instead of asking the user. Do **not** use the legacy unified id `savant-ai-provider-gzilpzflks` here — the canvas migrates vision nodes off it on load, and the per-vendor ids are what the picker shows. (`fuzzy_match` is the exception: it *requires* the legacy id. See `fuzzy_match.md`.) Any unresolvable provider id is **SILENTLY DROPPED on import** — Savant removes the whole node, not just the provider.
 - `input_field` must reference the upstream column holding binary content (usually `"content"` from a `source` with `config.type: "binary"`). Pointing vision at a non-binary column produces errors or empty output.
 - Output schema is implicit in `prompt` — downstream columns are whatever the provider returns, so editing the prompt can change column names silently. One input row (one document) can produce MULTIPLE output rows when the prompt asks for line items.
 

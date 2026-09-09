@@ -33,7 +33,11 @@ from contracts.output_destination import (
     destination_file_name,
     normalize_destination_type,
 )
-from contracts.ai_provider import DEFAULT_AI_PROVIDER_ID, provider_id_or_default
+from contracts.ai_provider import (
+    DEFAULT_AI_PROVIDER_ID,
+    fuse_provider_id_or_default,
+    provider_id_or_default,
+)
 from contracts.source_plan import (
     connector as source_plan_connector,
     dataset_id as source_plan_dataset_id,
@@ -942,10 +946,14 @@ def fuzzy_match(name: str, lhs_key: str, rhs_key: str, provider_id: str | None =
                 show_demo_provider: bool = True, description: str = "") -> dict:
     """AI fuzzy join of two inputs (left = in_0, right = in_1) on ONE text key each. Unlike
     blend (exact, can fork matched/unmatched), fuzzy_match has a SINGLE output and adds a
-    `Confidence Score` column; unmatched rows are dropped. Missing provider_id defaults to the
-    standard Savant Trial provider when omitted.
-    Keys are normalized field ids (e.g. 'Legal Names' -> 'legal_names')."""
-    provider_id = provider_id_or_default(provider_id)
+    `Confidence Score` column; unmatched rows are dropped.
+    Keys are normalized field ids (e.g. 'Legal Names' -> 'legal_names').
+
+    Missing provider_id defaults to the LEGACY UNIFIED provider, not the per-vendor default the
+    other AI builders use: the Canvas Fuse picker accepts no other Savant-managed id, and a Fuse
+    node bound to one renders as an invalid selection. See
+    `contracts.ai_provider.FUSE_DEFAULT_AI_PROVIDER_ID`."""
+    provider_id = fuse_provider_id_or_default(provider_id)
     return _node("fuzzy_match", name, {"lhsKey": _field_id(lhs_key), "rhsKey": _field_id(rhs_key),
                                        "providerId": provider_id, "showDemoProvider": bool(show_demo_provider)},
                  inlets=2, description=description)

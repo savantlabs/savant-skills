@@ -18,7 +18,6 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from contracts.folder_target import is_root_folder_target
-from savant_api.context import list_ai_providers
 from savant_api.executions import (
     TERMINAL_NODE_STATUSES,
     _normalize_execution_types,
@@ -44,22 +43,18 @@ from savant_api.httpclient import (
 )
 from savant_api import runmode
 from savant_api.fileio import (
-    _default_ai_providers_output_path,
     _default_executions_output_path,
     _default_import_output_path,
     _default_execution_detail_output_path,
     _default_output_path,
     _default_save_report_path,
-    _default_source_matches_output_path,
     load_json,
     save_json,
 )
 from savant_api.recipes import (
     assert_expected_model_diff,
-    backup_recipe,
     create_workflow_from_json,
     created_flow_id_from_import,
-    get_recipe,
     import_recipe_json,
     list_folder_recipes,
     prepare_recipe_for_save,
@@ -68,6 +63,7 @@ from savant_api.recipes import (
     save_metadata,
     update_workflow_recipe,
 )
+from savant_api.recipe_input import assert_flow_id, load_recipe
 from savant_api.session import (
     discover_session,
     ensure_rns,
@@ -76,7 +72,6 @@ from savant_api.session import (
 )
 from savant_api.sources import (
     create_source,
-    discover_workflow_source_matches,
     upload_file_async,
 )
 from savant_api.models import (
@@ -92,10 +87,7 @@ from savant_api.models import (
 # has no implicit default: at least one of these must be chosen, or it errors. Single source of
 # truth for both the "you must pick an operation" guard and the per-operation URL-kind check below.
 _OPERATIONS = (
-    (lambda a: a.export_recipe, "--export-recipe"),
     (lambda a: bool(a.inspect_node), "--inspect-node"),
-    (lambda a: a.list_ai_providers, "--list-ai-providers"),
-    (lambda a: bool(a.discover_source_matches), "--discover-source-matches"),
     (lambda a: a.list_executions, "--list-executions"),
     (lambda a: bool(a.execution_detail), "--execution-detail"),
     (lambda a: bool(a.import_json), "--import-json"),
@@ -105,7 +97,6 @@ _OPERATIONS = (
 
 # The operations that require a flow URL (.../flow/{flowId}); the rest accept a folder or flow URL.
 _FLOW_URL_OPERATIONS = {
-    "--export-recipe",
     "--inspect-node",
     "--list-executions",
     "--save-recipe-from",
@@ -123,9 +114,12 @@ def _require_operation(args: argparse.Namespace) -> None:
     if not _selected_operations(args):
         raise SavantAppApiError(
             "No operation specified. The app command does not default to anything — pass an "
-            "operation, e.g.: --export-recipe (download the workflow JSON), "
-            "--list-executions, --inspect-node, "
-            "--discover-source-matches, --import-json, --save-recipe-from, --save-metadata-from."
+            "operation, e.g.: --list-executions, --inspect-node, --import-json, "
+            "--save-recipe-from, --save-metadata-from.\n"
+            "Reading a workflow is not one of them any more: use the MCP `fetch` tool on "
+            "savant://workflow/{flowId}. Listing datasets and AI providers moved to MCP `search` "
+            "with types: [\"source\"] / [\"ai_provider\"]. For dataset matching, feed those "
+            "results to `savant.py dataset discover`."
         )
 
 
@@ -150,13 +144,12 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Savant flow URL (.../app/flow/{flowId}?rns=...) or folder URL "
             "(.../app/analysis?folderId={folderId}). The operation flag decides which kind is "
-            "required: --export-recipe, --inspect-node, --list-executions, and "
+            "required: --inspect-node, --list-executions, and "
             "--save-* need a flow URL. Optional otherwise: when omitted, the operation runs in the "
-            "authenticated session's namespace (the credentials' namespace) — e.g. "
-            "--list-ai-providers, or --import-json with --folder-id."
+            "authenticated session's namespace (the credentials' namespace) — e.g. --import-json "
+            "with --folder-id."
         ),
     )
-    parser.add_argument("--export-recipe", action="store_true", help="Export (download) the flow's workflow JSON (the 'recipe'). Requires a flow URL.")
     parser.add_argument("--output-path", type=Path, help="Where to write this operation's JSON result. Optional; defaults to a deterministic path under tmp/savant-api-exports/. Use --stdout to print the result inline instead.")
     parser.add_argument("--import-json", type=Path, help="Create a workflow by importing this workflow JSON through the API.")
     parser.add_argument("--folder-id", help="Target folder id, required for --import-json (use `home` for the Home folder/namespace root; `root` is a legacy alias). The workflow is created in the authenticated session's namespace. Find the id via MCP search/fetch on the folder entity.")
@@ -165,10 +158,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--save-recipe-from", type=Path, help="Update an existing workflow from a full live-recipe JSON. Rejects creation-shaped workflow JSON.")
     parser.add_argument("--save-metadata-from", type=Path, help="Live-save flow metadata (name/description/tags) through PUT /api/recipes/{flowId}/metadata. description renders as Markdown.")
     parser.add_argument("--confirm-live-save", action="store_true", help="Required with --save-recipe-from to prevent accidental workflow mutation.")
-    parser.add_argument("--sources-current-page-only", action="store_true", help="Call /api/sources without showAll=true.")
-    parser.add_argument("--list-ai-providers", action="store_true", help="Write the AI/LLM providers (id + name) available in this session's workspace.")
-    parser.add_argument("--discover-source-matches", type=Path, help="Write dataset-match candidates for source nodes in this workflow JSON.")
-    parser.add_argument("--source-match-limit", type=int, default=10, help="Maximum candidate datasets to keep per source match report.")
     parser.add_argument("--list-executions", action="store_true", help="Write normalized Run/Test history for this workflow.")
     parser.add_argument(
         "--execution-types",
@@ -177,6 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--execution-detail", help="Fetch details for a specific execution id.")
     parser.add_argument("--inspect-node", action="append", default=[], help="Analyze a node id and write a compact output report.")
+    parser.add_argument("--recipe-json", type=Path,
+                        help="The flow's recipe, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}. Required by --inspect-node, which "
+                             "resolves node ids against it.")
     # `--inspect-node` run mode: cached/interactive/analyze, plus `--from` to recompute from a
     # changed node. The inspected node is itself the stopping node, so `--up-to` is not consumed
     # here. Legacy `--sample-tier`/`--force-analyze` survive as hidden aliases.
@@ -202,28 +195,9 @@ def main(argv: list[str] | None = None) -> int:
     flow_id = savant_url.flow_id if savant_url is not None else None
     sources_path = None
     connections_path = None
-    source_matches_path = None
     executions_path = None
     execution_detail_path = None
     stdout_payloads: dict[str, Any] = {}
-    if args.list_ai_providers:
-        providers_path = args.output_path or _default_ai_providers_output_path(context.namespace)
-        providers = list_ai_providers(context)
-        save_json(providers, providers_path)
-        stdout_payloads["aiProviders"] = providers
-        if not args.stdout:
-            names = ", ".join(f"{p.get('name')} ({p.get('id')})" for p in providers) or "(none)"
-            print(f"Found {len(providers)} AI provider(s): {names}")
-    if args.discover_source_matches:
-        source_matches_path = args.output_path or _default_source_matches_output_path(args.discover_source_matches.stem)
-        source_matches_data = discover_workflow_source_matches(
-            context,
-            args.discover_source_matches,
-            show_all=not args.sources_current_page_only,
-            candidate_limit=args.source_match_limit,
-        )
-        save_json(source_matches_data, source_matches_path)
-        stdout_payloads["sourceMatches"] = source_matches_data
     if args.list_executions:
         executions_path = args.output_path or _default_executions_output_path(flow_id)
         executions = list_recipe_executions(context, flow_id, execution_types=args.execution_types)
@@ -323,12 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved metadata for {flow_id}; wrote verification report to {report_path}")
         return 0
 
-    if (
-        args.list_ai_providers
-        or args.discover_source_matches
-        or args.list_executions
-        or args.execution_detail
-    ) and not args.inspect_node:
+    if (args.list_executions or args.execution_detail) and not args.inspect_node:
         if args.stdout:
             if stdout_payloads:
                 payload = next(iter(stdout_payloads.values())) if len(stdout_payloads) == 1 else stdout_payloads
@@ -340,30 +309,25 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 execution_detail_path
                 or executions_path
-                or source_matches_path
                 or sources_path
                 or connections_path
             )
         else:
             if sources_path:
                 print(f"Wrote dataset discovery to {sources_path}")
-            if source_matches_path:
-                print(f"Wrote source match discovery to {source_matches_path}")
             if executions_path:
                 print(f"Wrote execution history to {executions_path}")
             if execution_detail_path:
                 print(f"Wrote execution detail to {execution_detail_path}")
         return 0
 
-    # Only --export-recipe and --inspect-node reach here; both need the flow's recipe. The
-    # operation guard above and the upfront URL-kind check guarantee a flow URL, so flow_id is set.
-    if not (args.export_recipe or args.inspect_node):
+    # Only --inspect-node reaches here. It needs the flow's recipe to resolve node ids, and takes
+    # it as --recipe-json: exporting a recipe over the API is gone, because the MCP `fetch` tool on
+    # savant://workflow/{flowId} returns the same document.
+    if not args.inspect_node:
         raise SavantAppApiError("No supported operation matched the provided flags.")
-    recipe = get_recipe(context, flow_id)
-    output = None
-    if args.export_recipe:
-        output = args.output_path or _default_output_path(flow_id)
-        save_json(recipe, output)
+    recipe = load_recipe(args.recipe_json, flag="--recipe-json")
+    assert_flow_id(recipe, flow_id, flag="--recipe-json")
     inspection_path = None
     if args.inspect_node:
         mode = runmode.resolve_mode(args, default="interactive")
@@ -380,16 +344,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             for node_id in args.inspect_node
         }
-        inspection_path = (output or args.output_path or _default_output_path(flow_id)).with_suffix(".inspection.json")
+        inspection_path = (args.output_path or _default_output_path(flow_id)).with_suffix(".inspection.json")
         save_json(report, inspection_path)
     if args.quiet:
-        print(output or inspection_path)
+        print(inspection_path)
     else:
-        node_count = len(recipe_nodes(recipe))
-        if output:
-            print(f"Exported {flow_id} with {node_count} node(s) to {output}")
-        if inspection_path:
-            print(f"Inspected {len(args.inspect_node)} node(s); wrote {inspection_path}")
+        print(f"Inspected {len(args.inspect_node)} node(s) of {flow_id} "
+              f"({len(recipe_nodes(recipe))} node(s) in the recipe); wrote {inspection_path}")
     return 0
 
 

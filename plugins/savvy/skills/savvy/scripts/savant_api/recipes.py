@@ -7,19 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .httpclient import poll_promise, promise_id_from_response, request, request_multipart
-from .fileio import save_json
 from .models import SavantAppApiError, SavantSessionContext
-
-
-def get_recipe(context: SavantSessionContext, flow_id: str) -> dict[str, Any]:
-    recipe = request(context, f"/api/recipes/{flow_id}")
-    if not isinstance(recipe, dict):
-        raise SavantAppApiError(f"GET /api/recipes/{flow_id} did not return a JSON object.")
-    nodes = recipe.get("nodes")
-    model_nodes = recipe.get("model", {}).get("nodes") if isinstance(recipe.get("model"), dict) else None
-    if not isinstance(nodes, list) and not isinstance(model_nodes, list):
-        raise SavantAppApiError(f"GET /api/recipes/{flow_id} did not return a workflow-like recipe.")
-    return recipe
 
 
 def list_folder_recipes(context: SavantSessionContext, folder_id: str) -> dict[str, Any]:
@@ -131,19 +119,21 @@ def create_workflow_from_json(
         result["flowUrl"] = f"{context.origin}/en/app/flow/{flow_id}"
         if context.namespace:
             result["flowUrl"] += f"?rns={urllib.parse.quote(context.namespace)}"
-        created = get_recipe(context, flow_id)
-        created_folder_id = created.get("folderId") if isinstance(created, dict) else None
-        # None and "" both denote the Home folder; normalize before comparing.
-        if (created_folder_id or None) != (folder_id or None):
-            raise SavantAppApiError(
-                f"Workflow creation folder mismatch: requested folder `{folder_id or '(Home folder)'}`, "
-                f"but created workflow `{flow_id}` reports folder `{created_folder_id or '(Home folder)'}`."
-            )
-        result["verifiedFolderId"] = created_folder_id
+        # The folder check that used to run here needs the created recipe, which this toolchain no
+        # longer reads. It moved to `workflow verify --operation create --expect-folder-id`, which
+        # the caller runs on the MCP-fetched recipe. Carried out so the caller can pass it straight
+        # back in, and so the report still records what was requested.
+        result["requestedFolderId"] = folder_id or None
+        result["verifyCommand"] = (
+            f"fetch savant://workflow/{flow_id} -> after.json, then: python3 savant.py workflow verify "
+            f"--operation create --workflow-json after.json --expect-flow-id {flow_id} "
+            f"--expect-folder-id {folder_id or ''} --source-json {json_path}"
+        )
+        result["verified"] = False
     return result
 
 
-def _diff_has_changes(diff: dict[str, Any]) -> bool:
+def diff_has_changes(diff: dict[str, Any]) -> bool:
     nodes = diff.get("nodes") if isinstance(diff, dict) else None
     if not isinstance(nodes, dict):
         return bool(diff.get("parametersChanged")) if isinstance(diff, dict) else False
@@ -221,12 +211,20 @@ def update_workflow_recipe(
     context: SavantSessionContext,
     flow_id: str,
     edited_recipe: dict[str, Any],
+    *,
+    before: dict[str, Any],
 ) -> dict[str, Any]:
-    """Update an existing workflow recipe in place and verify the target flow changed.
+    """Update an existing workflow recipe in place.
 
     This is intentionally separate from ``create_workflow_from_json``. Creation-shaped workflow
     JSON files do not carry the live workflow identity fields and must not be sent through the edit
     path; doing so can create a new workflow-like object instead of mutating the requested flow.
+
+    ``before`` is the pre-edit recipe the caller fetched through MCP. It serves the same two
+    purposes the in-process read-back used to: it proves the requested change is non-empty before
+    anything is written, and it is the baseline `workflow verify --before-json` diffs the saved
+    result against. Proving the save *persisted* now happens there, because it needs a recipe read
+    back after the write and this toolchain no longer reads recipes.
     """
     if not flow_id:
         raise SavantAppApiError("Workflow update requires an existing flow id.")
@@ -242,9 +240,14 @@ def update_workflow_recipe(
     if edited_id != flow_id:
         raise SavantAppApiError(f"Edited recipe id `{edited_id}` does not match target flow id `{flow_id}`.")
 
-    before = get_recipe(context, flow_id)
+    if not isinstance(before, dict):
+        raise SavantAppApiError(
+            "Workflow update requires the pre-edit recipe (`before`) so the requested change can be "
+            "diffed before it is written. Fetch it with the MCP `fetch` tool on "
+            "savant://workflow/{flowId}."
+        )
     requested_diff = recipe_model_diff(before, edited_recipe)
-    if not _diff_has_changes(requested_diff):
+    if not diff_has_changes(requested_diff):
         raise SavantAppApiError("Workflow update has no recipe changes to persist.")
 
     save_response = save_recipe_model(context, edited_recipe)
@@ -255,25 +258,19 @@ def update_workflow_recipe(
             "refusing to treat this as an in-place edit."
         )
 
-    after = get_recipe(context, flow_id)
-    persisted_diff = recipe_model_diff(before, after)
-    if not _diff_has_changes(persisted_diff):
-        raise SavantAppApiError(
-            "Workflow update did not persist on the target workflow: requested changes were non-empty, "
-            "but read-back of the target workflow was unchanged."
-        )
     return {
         "flowId": flow_id,
         "requestedDiff": requested_diff,
-        "persistedDiff": persisted_diff,
         "saveResponse": save_response,
+        # Whether the save actually landed is not knowable from here any more — it needs a recipe
+        # read back after the write. The caller re-fetches through MCP and runs this.
+        "verified": False,
+        "verifyCommand": (
+            f"fetch savant://workflow/{flow_id} -> after.json, then: python3 savant.py workflow "
+            f"verify --operation edit --workflow-json after.json --expect-flow-id {flow_id} "
+            "--before-json <the pre-edit recipe>"
+        ),
     }
-
-
-def backup_recipe(context: SavantSessionContext, flow_id: str, output_path: Path) -> dict[str, Any]:
-    recipe = get_recipe(context, flow_id)
-    save_json(recipe, output_path)
-    return recipe
 
 
 def _node_map(recipe: dict[str, Any]) -> dict[str, dict[str, Any]]:

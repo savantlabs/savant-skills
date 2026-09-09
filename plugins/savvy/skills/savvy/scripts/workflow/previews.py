@@ -27,7 +27,6 @@ from savant_api.cli import (  # noqa: E402
     discover_session,
     ensure_rns,
     fetch_node_output,
-    get_recipe,
     graph_status,
     node_status_map,
     parse_flow_url,
@@ -38,6 +37,7 @@ from savant_api.cli import (  # noqa: E402
     trigger_analysis,
 )
 from savant_api.fileio import workspace_tmp  # noqa: E402
+from savant_api.recipe_input import assert_flow_id, load_recipe  # noqa: E402
 from savant_api import runmode  # noqa: E402
 
 
@@ -171,6 +171,7 @@ def build_preview_report(
     flow_url: str,
     node_ids: list[str],
     *,
+    workflow_json: Path,
     sample_tier: str = "1k",
     timeout_seconds: int = 90,
     row_limit: int = 5,
@@ -183,7 +184,9 @@ def build_preview_report(
 ) -> dict[str, Any]:
     parsed = parse_flow_url(flow_url)
     context = discover_session(parsed.namespace, origin=parsed.origin)
-    recipe = get_recipe(context, parsed.flow_id)
+    # The recipe is an input; only the compute legs (analyze, status, output fetch) hit the API.
+    recipe = load_recipe(workflow_json)
+    assert_flow_id(recipe, parsed.flow_id)
     resolved_ids = list(node_ids)
     if node_names:
         resolved_ids.extend(resolve_node_names(recipe, node_names))
@@ -286,6 +289,9 @@ def print_summary(report: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("flow_url", help="Savant flow URL to inspect.")
+    parser.add_argument("--workflow-json", type=Path, required=True,
+                        help="The flow's recipe, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}. Node ids and names resolve against it.")
     parser.add_argument("--node-id", action="append", default=[], help="Node id to preview. Repeat for multiple nodes.")
     parser.add_argument("--node-ids", help='JSON array of node ids, e.g. \'["source_a","filter_b|1"]\'.')
     parser.add_argument("--node-name", action="append", default=[], help="Exact node display name to resolve and preview.")
@@ -304,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     report = build_preview_report(
         args.flow_url,
         node_ids,
+        workflow_json=args.workflow_json,
         sample_tier=runmode.sample_tier(mode),
         timeout_seconds=args.timeout_seconds,
         row_limit=args.row_limit,
