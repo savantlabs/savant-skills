@@ -79,8 +79,15 @@ Use `../scripts/savant.py workflow health` as the shared precheck for both Inspe
 
 ```bash
 python3 ../scripts/savant.py workflow health "{flowUrl}" \
+  --workflow-json <recipe.json> --sources-json <sources.json> \
   --output-path "$(../scripts/savant.py session tmp-path "<task-name>" health.json)"
 ```
+
+`--workflow-json` is required: the recipe comes from the MCP `fetch` tool on
+`savant://workflow/{flowId}`, not from the API. `--sources-json` (the MCP `search` result for
+`types: ["source"]`) enables the dataset-matching leg; omit it and matching is *skipped*, not
+reported as zero matches. Run history and the optional preview still need `api_enabled`.
+
 
 Run it before proposing an edit when the user asks to fix, repair, debug, troubleshoot, make working, resolve errors, address warnings, or continue from a diagnosis. The precheck is intentionally narrow: it reads recipe/status/version/run history, checks source dataset matches, and detects placeholder-like sources, and does not compute by default. Add `--mode interactive` (or `--mode analyze` for full-data evidence) only when the user asked for data behavior evidence and you want the single earliest-checkpoint preview.
 
@@ -160,7 +167,7 @@ Import is for creating a new flow; it always mints a new flowId. An edit to an e
 - **inserting a node mid-edge** between two connected nodes (redirect the upstream node's outlet through the new node, point the downstream node's inlet at it) **when the inserted node preserves the downstream schema** — e.g. retrofitting a `passthroughUnmapped` standardizing adapter. Verified live: the inserted node kept the same flowId and the downstream node stayed Ready with an unchanged output contract. If the inserted node changes the downstream columns, pair it with the usual reconciliation.
 - **removing or replacing one single-input/single-output mid-graph node** with an explicit rehydration plan: redirect the sole upstream outlet to the sole downstream node, fix the downstream inlet, clean group/text membership, and reconcile the downstream schema with documented config edits (for example collapsing a create/rename Transform and a hide/reorder Transform into one). When the collapse leaves a group without a distinct business phase, re-evaluate it under confirmed Optimize scope and drop or merge it (surfacing the change for live edits).
 
-These were verified live: `PUT /api/recipes` saves that added a node, removed a leaf node, inserted a node mid-edge, and collapsed a single-input/single-output mid-graph node each preserved the flowId, and the re-fetched `recipe_model_diff` matched the requested `added`/`removed`/`changed` set. Drive them through the standard loop (snapshot → dry-run `recipe_model_diff` → confirm → save → re-fetch) and assert the persisted diff equals the requested diff (`assert_expected_model_diff`). The added node's config must be documented and verifiable like any other component edit.
+These were verified live: `PUT /api/recipes` saves that added a node, removed a leaf node, inserted a node mid-edge, and collapsed a single-input/single-output mid-graph node each preserved the flowId, and the re-fetched `recipe_model_diff` matched the requested `added`/`removed`/`changed` set. Drive them through the standard loop (MCP `fetch` → dry-run `recipe_model_diff` → confirm → save → MCP `fetch` → `workflow verify --operation edit --before-json`) and assert the persisted diff equals the requested diff (`assert_expected_model_diff`). The re-fetch is an MCP `fetch`, not a toolchain call: `workflow edit --confirm` reports `saved-unverified` and the verify step is what proves persistence. The added node's config must be documented and verifiable like any other component edit.
 
 **Beyond the proven set — rebuild in place:**
 
@@ -172,7 +179,7 @@ These were verified live: `PUT /api/recipes` saves that added a node, removed a 
 - creating a brand-new source or destination definition (adding a new connector/upload as a new node) — distinct from repointing an *existing* source's dataset, which is supported (see "Dataset replacement")
 - changing schema-bound connections *between nodes* without a rehydration plan (this is about node-to-node edges; replacing the *dataset* a source points to has its own supported path with reconciliation)
 
-For reshapes beyond the proven set, rebuild the flow with the builder and apply it to the **same flow** via `workflow edit --replace-from-build <rebuilt.json> --confirm`. This merges the creation-shaped rebuild onto the live identity envelope — same flowId, folder, namespace, and live name (a rebuild never renames) — runs the create-preflight content blockers (placeholder/foreign dataset ids, missing AI provider), and goes through the normal propose → confirm → save → verify loop. Verified live 2026-06-10: a 41-node `--replace-from-build` persisted on the same flowId with every destination Ready. A replacement import is a last resort, used only when the in-place save itself fails and the user confirms a new flow naming the superseded one. Do not probe DOM, Redux, or UI write mechanisms in a production workflow.
+For reshapes beyond the proven set, rebuild the flow with the builder and apply it to the **same flow** via `workflow edit --replace-from-build <rebuilt.json> --current-recipe <fetched.json> --confirm`. This merges the creation-shaped rebuild onto the live identity envelope — same flowId, folder, namespace, and live name (a rebuild never renames) — runs the create-preflight content blockers (placeholder/foreign dataset ids, missing AI provider), and goes through the normal propose → confirm → save → verify loop. Verified live 2026-06-10: a 41-node `--replace-from-build` persisted on the same flowId with every destination Ready. A replacement import is a last resort, used only when the in-place save itself fails and the user confirms a new flow naming the superseded one. Do not probe DOM, Redux, or UI write mechanisms in a production workflow.
 
 ## Proposal shape
 

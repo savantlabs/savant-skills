@@ -22,14 +22,12 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from savant_api.cli import (  # noqa: E402
     SavantAppApiError,
-    discover_session,
-    ensure_rns,
-    get_recipe,
     parse_flow_url,
     recipe_nodes,
     save_json,
 )
 from savant_api.fileio import workspace_tmp  # noqa: E402
+from savant_api.recipe_input import assert_flow_id, load_recipe  # noqa: E402
 
 
 STRUCTURAL_TYPES = {"group", "text"}
@@ -45,26 +43,22 @@ def node_label(node: dict[str, Any]) -> str | None:
     return None
 
 
-def load_recipe(*, flow_url: str | None, input_json: Path | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    if input_json:
-        recipe = json.loads(input_json.read_text(encoding="utf-8"))
-        if not isinstance(recipe, dict):
-            raise SavantAppApiError(f"Workflow JSON must be an object: {input_json}")
-        return recipe, {"source": "file", "inputPath": str(input_json)}
-    if not flow_url:
-        raise SavantAppApiError("Provide a flow URL or --input-json.")
-    parsed = parse_flow_url(flow_url)
-    context = discover_session(parsed.namespace, origin=parsed.origin)
-    recipe = get_recipe(context, parsed.flow_id)
-    return recipe, {
-        "source": "api",
-        "flowUrl": ensure_rns(flow_url, context.namespace),
-        "workspaceId": context.workspace_id,
-        "workspaceName": (context.workspace or {}).get("name"),
-        "organizationId": context.org_id,
-        "organizationName": (context.organization or {}).get("name"),
-        "namespace": context.namespace,
-    }
+def load_map_input(*, flow_url: str | None, input_json: Path | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The recipe to map, always from a file.
+
+    This route used to accept a flow URL and fetch the recipe itself. It no longer reads the app
+    API at all: the caller fetches the flow with the MCP `fetch` tool on savant://workflow/{flowId}
+    and passes the resulting JSON. A flow URL may still be given, and is recorded as provenance,
+    but it is not fetched.
+    """
+    recipe = load_recipe(input_json, flag="--input-json")
+    source_context: dict[str, Any] = {"source": "file", "inputPath": str(input_json)}
+    if flow_url:
+        parsed = parse_flow_url(flow_url)
+        source_context["flowUrl"] = flow_url
+        source_context["namespace"] = parsed.namespace
+        assert_flow_id(recipe, parsed.flow_id, flag="--input-json")
+    return recipe, source_context
 
 
 def source_refs_from_inlets(node: dict[str, Any]) -> list[dict[str, Any]]:
@@ -243,13 +237,17 @@ def print_summary(report: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("flow_url", nargs="?", help="Savant flow URL to map.")
-    parser.add_argument("--input-json", type=Path, help="Local workflow JSON file to map instead of a live flow URL.")
+    parser.add_argument("flow_url", nargs="?",
+                        help="Optional Savant flow URL, recorded as provenance and checked against "
+                             "the JSON's flow id. Not fetched.")
+    parser.add_argument("--input-json", type=Path, required=True,
+                        help="The workflow JSON to map, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}. This route never reads the API.")
     parser.add_argument("--output-path", type=Path, help="Where to write workflow map JSON.")
     parser.add_argument("--json-only", action="store_true", help="Do not print the text summary.")
     args = parser.parse_args(argv)
 
-    recipe, source_context = load_recipe(flow_url=args.flow_url, input_json=args.input_json)
+    recipe, source_context = load_map_input(flow_url=args.flow_url, input_json=args.input_json)
     report = build_workflow_map(recipe, source_context=source_context)
     output = args.output_path or default_output_path(report)
     save_json(report, output)

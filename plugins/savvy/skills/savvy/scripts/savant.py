@@ -33,13 +33,14 @@ ROUTES: dict[tuple[str, ...], tuple[str, str]] = {
     ("dataset", "download"): ("savant_api.dataset_download", "Download uploaded files behind datasets"),
     ("source", "profile"): ("workflow.source_profile", "Profile local CSV/Excel/PDF sources and likely joins"),
     ("preview", "nodes"): ("workflow.previews", "Read or analyze node preview output"),
-    ("workflow", "create"): ("workflow.create", "Import a workflow JSON and verify it"),
-    ("workflow", "edit"): ("workflow.edit", "Save an edited recipe in place and verify it"),
+    ("workflow", "create"): ("workflow.create", "Import a workflow JSON (verify with `workflow verify`)"),
+    ("workflow", "edit"): ("workflow.edit", "Save an edited recipe in place (verify with `workflow verify`)"),
     ("workflow", "inspect"): ("workflow.inspection", "Inspect a live workflow after import"),
     ("workflow", "health"): ("workflow.health", "Run read-only workflow health checks"),
     ("workflow", "map"): ("workflow.map", "Build a compact workflow map"),
     ("workflow", "polish"): ("workflow.polish", "Apply shared workflow JSON layout/color polish"),
     ("workflow", "targets"): ("workflow.targets", "Suggest validation checkpoints"),
+    ("workflow", "verify"): ("workflow.verify", "Verify a create/edit landed, from the re-fetched recipe"),
     ("usage", "admin"): ("savant_api.admin_usage", "Read admin usage data"),
     ("session",): ("savant_api.fileio", "Resolve AI session id and session-scoped tmp paths"),
     ("registry", "summary"): ("registry.print_summary", "Print registry summary"),
@@ -60,7 +61,6 @@ API_REQUIRED_ROUTES = {
     ("workflow", "edit"),
     ("workflow", "inspect"),
     ("workflow", "health"),
-    ("workflow", "map"),
     ("workflow", "targets"),
     ("usage", "admin"),
 }
@@ -170,7 +170,7 @@ def _serve(serve_args: list[str] | None = None) -> int:
     browser-session discovery are paid once on the first command instead of on every
     call. Send the capability probe first to warm the session.
 
-    Request:  {"id": <any, optional>, "argv": ["app", "--list-ai-providers"]}
+    Request:  {"id": <any, optional>, "argv": ["app", "<flow-url>", "--list-executions"]}
               (a bare JSON array is also accepted as argv)
     Response: {"id": <echoed>, "ok": <bool>, "exit_code": <int>,
                "stdout": <str>, "stderr": <str>}

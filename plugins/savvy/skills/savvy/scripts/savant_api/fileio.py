@@ -218,13 +218,6 @@ def _default_output_path(flow_id: str) -> Path:
     return _exports_dir() / f"{flow_id}.json"
 
 
-def _default_ai_providers_output_path(namespace: str | None) -> Path:
-    label = namespace or "default"
-    return _exports_dir() / f"{label}.ai-providers.json"
-
-
-
-
 def _default_executions_output_path(flow_id: str) -> Path:
     return _exports_dir() / f"{flow_id}.executions.json"
 
@@ -235,10 +228,6 @@ def _default_import_output_path(json_path: Path) -> Path:
 
 def _default_save_report_path(flow_id: str) -> Path:
     return _exports_dir() / f"{flow_id}.save-report.json"
-
-
-def _default_source_matches_output_path(stem: str) -> Path:
-    return _exports_dir() / f"{stem}.source-matches.json"
 
 
 def _default_execution_detail_output_path(execution_id: str) -> Path:

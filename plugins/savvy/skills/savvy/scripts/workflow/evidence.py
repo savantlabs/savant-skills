@@ -27,6 +27,7 @@ def collect_post_write_evidence(
     flow_url: str,
     flow_id: str,
     operation: str,
+    recipe: dict[str, Any],
     imported_path: str | None,
     checkpoints: list[str],
     expect_columns: list[str] | None,
@@ -39,15 +40,23 @@ def collect_post_write_evidence(
     post_write_recipe_path: Path | None = None,
     block_documentation_gaps: bool = False,
 ) -> dict[str, Any]:
-    """Fetch saved recipe and inspect previews with shared defaults.
+    """Validate a supplied post-write recipe and inspect previews with shared defaults.
 
-    The caller owns only the write operation. Once a flow exists or has been saved, this helper
-    deterministically chooses the routine evidence surfaces for both create and edit: the
-    re-fetched recipe, file-based workflow validation (which includes the deterministic layout
-    checks), and node/output inspection. There is no rendered-canvas/visual leg — layout quality
-    is judged from the validated JSON, not a rendered view.
+    The caller owns the write operation AND the re-fetch: `recipe` is the post-write recipe the
+    caller read back with the MCP `fetch` tool on savant://workflow/{flowId}. This helper used to
+    issue that read itself; it no longer reads the app API at all, though the inspection leg it
+    delegates to still uses the API for previews and node status.
+
+    Given the recipe, it deterministically chooses the routine evidence surfaces for create, edit
+    and inspect: file-based workflow validation (which includes the deterministic layout checks)
+    and node/output inspection. There is no rendered-canvas/visual leg — layout quality is judged
+    from the validated JSON, not a rendered view.
+
+    Note this is *evidence*, not the write's verification gate. Folder placement, node persistence
+    and the before/after model diff live in `workflow verify`, which the caller runs on the same
+    re-fetched recipe.
     """
-    refetched_recipe = api.get_recipe(ctx, flow_id)
+    refetched_recipe = recipe
     if post_write_recipe_path is not None:
         api.save_json(refetched_recipe, post_write_recipe_path)
         validation_errors, validation_warnings = workflow_validator.validate(
@@ -74,6 +83,7 @@ def collect_post_write_evidence(
     if inspect_enabled:
         inspect_report = savant_inspect.inspect(
             flow_url,
+            recipe=refetched_recipe,
             imported_path=imported_path,
             expect_columns=expect_columns,
             expected_outputs=expected_outputs,

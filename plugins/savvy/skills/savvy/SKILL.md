@@ -132,6 +132,10 @@ credentials from the environment. The handshake:
 
 Then confirm access: `savant.py capabilities --output-path "$(savant.py session tmp-path savant-capabilities.json)"` and proceed only when `api_enabled: true`.
 
+**`api_enabled` gates writes, not reads.** Reading, mapping, explaining, verifying and exporting a workflow need no API access at all: fetch the recipe with the MCP `fetch` tool on `savant://workflow/{flowId}` and pass the file to `workflow map`, `workflow verify`, `app --inspect-node`, or the flow-explainer agent. Datasets and AI providers come from MCP `search`. What still needs `api_enabled` is creating, saving, uploading, running previews, and reading run history. So "API is off" means "I cannot change or run anything", not "I cannot look at your workflow".
+
+Note the probe is now credential-shaped rather than a live call, so an expired token reads as `available` and surfaces as a 401 on the first write rather than here.
+
 ## Run modes (data-evidence ladder)
 
 When a mode needs computed data evidence, choose the cheapest rung that can answer correctly and

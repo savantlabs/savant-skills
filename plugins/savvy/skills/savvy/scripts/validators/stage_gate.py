@@ -62,6 +62,23 @@ def _load_optional_json(path: Path | None, label: str) -> tuple[dict[str, Any] |
     return value, []
 
 
+def _verify_report(evidence: Any) -> dict[str, Any] | None:
+    """A `workflow verify` report from the evidence, by explicit key or by shape.
+
+    Accepting it by shape means a caller that passes the verify JSON directly (rather than nested
+    under `verify_report`) is not silently treated as an unverified edit report.
+    """
+    if not isinstance(evidence, dict):
+        return None
+    for key in ("verify_report", "verifyReport"):
+        candidate = evidence.get(key)
+        if isinstance(candidate, dict):
+            return candidate
+    if evidence.get("operation") in ("create", "edit", "metadata") and "checks" in evidence:
+        return evidence
+    return None
+
+
 def _status(value: Any) -> str:
     if isinstance(value, dict):
         raw = value.get("status")
@@ -302,25 +319,49 @@ def _validate_stage(
             pass_detail="Editor readiness is complete.",
         )
     if role == "editor" and gate == "done":
+        # `workflow edit --confirm` cannot report `verified` any more: proving a save persisted
+        # needs the recipe read back, which is now an MCP `fetch` followed by `workflow verify`.
+        # So the accepted evidence is that verify report — an edit report alone is not enough.
+        verify_report = _verify_report(evidence)
+        if verify_report is not None:
+            if verify_report.get("ok") is True:
+                return _check_result(
+                    "verify_report",
+                    True,
+                    "workflow verify passed on the edited flow, which supports an in-place "
+                    "completion claim.",
+                )
+            failed = verify_report.get("failedChecks") or []
+            return _check_result(
+                "verify_report",
+                False,
+                "Editor done requires workflow verify to pass; it failed"
+                + (f" on: {', '.join(map(str, failed))}." if failed else "."),
+            )
+
         report = evidence.get("edit_report") if isinstance(evidence.get("edit_report"), dict) else evidence
         status = _status(report)
         same_flow = report.get("sameFlowId") if isinstance(report, dict) else None
-        if status != "verified":
-            return _check_result(
-                "edit_report",
-                False,
-                f"Editor done requires a verified edit report; current status is `{status}`.",
-            )
         if same_flow is False:
             return _check_result(
                 "same_flow",
                 False,
                 "Editor done is blocked because the report indicates the flow id changed.",
             )
+        if status == "verified":
+            # A pre-Round-3 report, from when the edit command verified itself.
+            return _check_result(
+                "edit_report",
+                True,
+                "Edit report is verified and supports an in-place completion claim.",
+            )
         return _check_result(
             "edit_report",
-            True,
-            "Edit report is verified and supports an in-place completion claim.",
+            False,
+            f"Editor done requires a passing workflow verify report; the edit report status is "
+            f"`{status}`. Re-fetch the flow with the MCP `fetch` tool and run "
+            f"`savant.py workflow verify --operation edit --before-json <pre-edit recipe>`, then "
+            f"pass that report as `verify_report`.",
         )
     if role == "q_and_a" and gate == "precheck":
         errors, warnings = skill_readiness.validate_skill_readiness(evidence)

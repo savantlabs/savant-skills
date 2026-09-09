@@ -31,6 +31,7 @@ from pathlib import Path
 
 from savant_api import cli as api
 from savant_api.fileio import workspace_tmp
+from savant_api.recipe_input import assert_flow_id, load_recipe
 from savant_api import runmode
 
 ERROR, WARN = "error", "warn"
@@ -249,7 +250,7 @@ def _output_smoke_rows(targets: list[dict], results: dict[str, tuple[dict, dict]
     return rows
 
 
-def _persistence_check(imported_nodes: list[dict], live_nodes: list[dict]) -> tuple[bool, str]:
+def persistence_check(imported_nodes: list[dict], live_nodes: list[dict]) -> tuple[bool, str]:
     imported_names = [n.get("name") for n in imported_nodes]
     live_names = [n.get("name") for n in live_nodes]
     imported_count = len(imported_nodes)
@@ -267,22 +268,31 @@ def _persistence_check(imported_nodes: list[dict], live_nodes: list[dict]) -> tu
 
 def inspect(flow_url: str, *, imported_path: str | None, expect_columns: list[str] | None,
             checkpoints: list[str], sample_tier: str, timeout: int, skip_terminals: bool,
+            recipe: dict | None = None, recipe_json: Path | None = None,
             expected_outputs: list[dict] | None = None,
             force_analyze: bool = False) -> dict:
+    """Inspect a live flow against its recipe.
+
+    The recipe is supplied, not fetched: pass `recipe` (an already-loaded dict, which is how
+    `workflow/evidence.py` hands over the post-write recipe it was given) or `recipe_json` (a path
+    to the MCP `fetch` result). Preview/status still use the API.
+    """
     checks: list[tuple[str, bool, str, str]] = []  # (check, ok, detail, severity)
 
     su = api.parse_savant_url(flow_url)
     if su.kind != "flow" or not su.flow_id:
         raise SystemExit("workflow inspect requires a Savant flow URL (.../flow/{flowId}).")
     ctx = api.discover_session(su.namespace, origin=su.origin)
-    recipe = api.get_recipe(ctx, su.flow_id)
+    if recipe is None:
+        recipe = load_recipe(recipe_json, flag="--recipe-json")
+    assert_flow_id(recipe, su.flow_id, flag="--recipe-json")
     live_nodes = [n for n in api.recipe_nodes(recipe) if isinstance(n, dict)]
 
     # 1. Persistence vs the imported JSON (import remaps ids but preserves names).
     if imported_path:
         imp = json.loads(Path(imported_path).read_text(encoding="utf-8"))
         imp_nodes = [n for n in (imp.get("nodes") or []) if isinstance(n, dict)]
-        ok, detail = _persistence_check(imp_nodes, live_nodes)
+        ok, detail = persistence_check(imp_nodes, live_nodes)
         checks.append(("persistence", ok, detail, ERROR))
 
     # 2. Pick checkpoints: terminals (unless skipped) plus any caller-named stages.
@@ -429,6 +439,9 @@ def inspect(flow_url: str, *, imported_path: str | None, expect_columns: list[st
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("flow_url", help="Savant flow URL, e.g. https://app.savantlabs.io/en/app/flow/{id}?rns={ns}")
+    p.add_argument("--recipe-json", type=Path, required=True,
+                   help="The flow's live recipe, fetched with the MCP `fetch` tool on "
+                        "savant://workflow/{flowId}.")
     p.add_argument("--imported-json", help="The workflow JSON that was imported (for the persistence check).")
     p.add_argument("--expect-columns", help="Comma-separated expected final output columns, in order.")
     p.add_argument("--expected-outputs-json", help="JSON list/object of output contracts, or a handoff containing builder_preflight.output_destination_plan.outputs.")
@@ -462,6 +475,8 @@ def main(argv=None) -> int:
     if su.kind != "flow" or not su.flow_id:
         raise SystemExit("workflow inspect requires a Savant flow URL (.../flow/{flowId}).")
     ctx = api.discover_session(su.namespace, origin=su.origin)
+    live_recipe = load_recipe(args.recipe_json, flag="--recipe-json")
+    assert_flow_id(live_recipe, su.flow_id, flag="--recipe-json")
     live_recipe_path = (
         None if args.no_post_save_recipe
         else args.post_save_recipe_path or workflow_evidence.default_post_write_recipe_path(su.flow_id, "inspect")
@@ -471,6 +486,7 @@ def main(argv=None) -> int:
         flow_url=args.flow_url,
         flow_id=su.flow_id,
         operation="inspect",
+        recipe=live_recipe,
         imported_path=args.imported_json,
         expect_columns=expect,
         expected_outputs=expected_outputs,

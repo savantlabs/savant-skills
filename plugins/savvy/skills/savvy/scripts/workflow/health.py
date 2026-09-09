@@ -30,13 +30,12 @@ from savant_api.cli import (  # noqa: E402
     analyze_and_fetch_node,
     discover_session,
     ensure_rns,
-    get_recipe,
     list_recipe_executions,
     parse_flow_url,
     recipe_nodes,
     save_json,
 )
-from savant_api.sources import list_sources  # noqa: E402
+from savant_api.recipe_input import assert_flow_id, load_recipe, load_records  # noqa: E402
 from workflow.discovery import build_discovery_report  # noqa: E402
 from savant_api.fileio import workspace_tmp  # noqa: E402
 from savant_api import runmode  # noqa: E402
@@ -248,14 +247,34 @@ def print_summary(report: dict[str, Any]) -> None:
 def build_health_report(
     flow_url: str,
     *,
+    workflow_json: Path,
+    sources_json: Path | None = None,
     sample_tier: str = "1k",
     preview: bool = False,
     preview_timeout_seconds: int = 60,
 ) -> dict[str, Any]:
+    """Health-check a live flow from its MCP-fetched recipe.
+
+    The recipe and the dataset list are inputs now — `workflow_json` from the MCP `fetch` tool on
+    savant://workflow/{flowId}, `sources_json` from MCP `search` with `types: ["source"]`. Run
+    history and the optional preview still need the API, so this route is not API-free; but the
+    recipe and source-matching legs are.
+
+    Omitting `sources_json` skips source matching rather than reporting zero matches: an empty
+    dataset list and an unsupplied one are different facts, and conflating them would report every
+    bound dataset as unresolvable.
+    """
     parsed = parse_flow_url(flow_url)
     context = discover_session(parsed.namespace, origin=parsed.origin)
-    recipe = get_recipe(context, parsed.flow_id)
-    source_match_report = build_discovery_report(recipe, list_sources(context), limit=10)
+    recipe = load_recipe(workflow_json)
+    assert_flow_id(recipe, parsed.flow_id)
+    datasets = load_records(sources_json, flag="--sources-json")
+    source_match_report = (
+        build_discovery_report(recipe, datasets, limit=10) if sources_json is not None else
+        {"skipped": True,
+         "reason": "no --sources-json was supplied, so dataset matching was not run. Pass the MCP "
+                   "`search` result for types: [\"source\"] to enable it."}
+    )
     sources = source_health(recipe, source_match_report)
     execution_types = ["run_now", "scheduled", "test_run"]
     report: dict[str, Any] = {
@@ -306,6 +325,12 @@ def build_health_report(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("flow_url", help="Savant flow URL to inspect.")
+    parser.add_argument("--workflow-json", type=Path, required=True,
+                        help="The flow's recipe, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}.")
+    parser.add_argument("--sources-json", type=Path,
+                        help="MCP `search` result for types: [\"source\"]. Omit to skip dataset "
+                             "matching rather than report zero matches.")
     parser.add_argument("--output-path", type=Path, help="Where to write health-check JSON.")
     # Health defaults to no-compute: it reads recipe/status/version/run-history/source matches.
     # `--mode interactive|analyze` opts into the single earliest-checkpoint preview.
@@ -318,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
     mode = runmode.resolve_mode(args, default="cached")
     report = build_health_report(
         args.flow_url,
+        workflow_json=args.workflow_json,
+        sources_json=args.sources_json,
         sample_tier=runmode.sample_tier(mode),
         preview=runmode.should_compute(mode) and not args.skip_preview,
         preview_timeout_seconds=args.preview_timeout_seconds,

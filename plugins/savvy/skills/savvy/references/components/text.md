@@ -26,7 +26,7 @@ Schema, enum values, and validator-facing config rules live in `../registry/comp
 
 ## API edit support
 
-Text-node edits are supported only when they can be represented as documented recipe JSON changes, such as `config.inputText`, `config.text`, position, size, and formatting fields. Use `savant.py app` to save the recipe diff and re-fetch it for persistence verification. Keep `config.inputText` and `config.text` in sync on edit.
+Text-node edits are supported only when they can be represented as documented recipe JSON changes, such as `config.inputText`, `config.text`, position, size, and formatting fields. Use `savant.py workflow edit` to save the recipe diff, then re-fetch with MCP `fetch` and run `savant.py workflow verify --operation edit --before-json` for persistence verification. Keep `config.inputText` and `config.text` in sync on edit.
 
 ## Gotchas
 

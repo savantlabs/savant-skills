@@ -12,15 +12,19 @@ Use this to resolve a real AI provider id before importing or editing AI-backed 
 
 ## Default Action
 
-With `api_enabled`, list providers via `--list-ai-providers` and pick by this rule (the
-toolchain already ranks the list and marks the `recommended` pick):
+List providers with MCP `search`, `types: ["ai_provider"]`, and pick by this rule. **The store
+already did the hard part**: it returns bring-your-own-key (BYOK) providers when the workspace has
+any, and Savant-managed ones *only* when it has none. The two sets never arrive mixed, so there is
+nothing to rank — just count what came back.
 
-- **Customer-created providers win.** A provider the workspace created carries `kind: "customer"`
-  (it has an `owner`/`connector`). If there is exactly one, use it. If there are several, **ask
-  which** by display name (same discipline as ambiguous datasets/systems) — don't guess.
-- **Otherwise fall back to a Savant trial provider**, in preference order
-  **`savant_anthropic` > `savant_openai` > `savant_gemini`**. The trial providers come back as the
-  sparse `{id, name}` shape (`kind: "trial"`) with these stable `savant_*` ids.
+- **BYOK providers win, and they are what you get.** If exactly one came back, use it. If several,
+  **ask which** by display name (same discipline as ambiguous datasets/systems) — don't guess.
+- **Savant-managed providers appearing at all means the workspace has no key of its own.** Take
+  **`savant_anthropic`** ("Savant Anthropic"); the platform-stable alternatives are
+  `savant_openai` and `savant_gemini`. Seeing these is not "no AI access" — it means "this account
+  has not connected its own AI keys yet".
+- Results are scoped to the workspace **and its organization**, so an org-shared key is included.
+  Bind the bare id, not the `savant://ai_provider/{id}` URI.
 - **Without API (offline/build-only), default to `savant_anthropic`.** Do not ask the user for this
   standard id.
 - If the API returns no providers at all, use `savant_anthropic` only for offline/build-only JSON.
@@ -36,11 +40,27 @@ toolchain already ranks the list and marks the `recommended` pick):
 
 ## How do I get the provider name + id?
 
+MCP `search` with `types: ["ai_provider"]` (the type must be named explicitly — this type is
+excluded from untyped searches, so a bare query returns none of it). Each hit's summary states the
+connector, the status, and whether it is Savant-managed or org-shared.
+
+There is no CLI route for this any more, and no ranking step: `--list-ai-providers` and its
+`recommended` tag are gone. Apply the rule above to what `search` returns. An empty result means
+AI is not available in that workspace for live verification — tell the user before import/edit
+verification. For offline/build-only JSON, use `savant_anthropic` instead of asking the user
+for an id.
+
+**Feeding the preflight.** `workflow create` and `workflow edit --replace-from-build` can check
+every bound `providerId` against the workspace before writing — an unresolvable one gets the whole
+node silently dropped on import. Write the `search` result to a file and pass it:
+
 ```bash
-python3 ../scripts/savant.py app <reference-flow-or-folder-url> --list-ai-providers
+python3 ../scripts/savant.py workflow create --import-json <flow.json> --folder-id <id> \
+  --confirmed-namespace <ns> --providers-json <providers.json>
 ```
 
-GETs `/api/connections/AIProviders` and returns the providers **ranked** — customer-created first, then trial in `savant_anthropic` > `savant_openai` > `savant_gemini` order — each tagged with `kind` (`customer`/`trial`) and a single `recommended` default. Take the `recommended` entry; if several customer providers exist none is marked, so ask which to use. It's **token-only** (no workspace/tab session needed), so it runs headless. An empty list means AI isn't enabled in that workspace for live verification — tell the user before import/edit verification. For offline/build-only JSON, use `savant_anthropic` instead of asking the user for an id.
+Omitting `--providers-json` skips the check rather than failing it — so pass it whenever the
+workflow has an AI node.
 
 ## Enforcement
 

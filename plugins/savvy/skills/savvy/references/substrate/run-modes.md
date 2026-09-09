@@ -125,7 +125,7 @@ Confirmed compute API surface:
 
 The shared helper `savant.py app` owns the low-level path for single-node inspection
 (`--inspect-node`, with `--mode`). For multiple node previews in one pass, use
-`savant.py preview nodes` (default `--mode cached`; pass `--mode interactive` or
+`savant.py preview nodes` (requires `--workflow-json`; default `--mode cached`; pass `--mode interactive` or
 `--mode analyze` to compute).
 
 Do not run a compute mode merely for visual verification. Layout, text, group, label, color, and

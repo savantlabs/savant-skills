@@ -13,7 +13,7 @@ Use this to answer read-only questions about a live Savant workflow from recipe 
 
 ## Default Action
 
-- For routine post-import or post-edit verification, run `savant.py workflow inspect`.
+- For routine post-import or post-edit verification, run `savant.py workflow verify` (structural: folder, persistence, before/after diff, validation), then `savant.py workflow inspect` (data evidence). Both take the recipe re-fetched with MCP `fetch`.
 - For status/debug/fix-readiness questions, run `savant.py workflow health` first.
 - For targeted questions, orient with the API recipe, inspect the specific node/branch, then fetch preview/output evidence only when the question needs it.
 
@@ -26,7 +26,7 @@ Use this to answer read-only questions about a live Savant workflow from recipe 
 
 ## Helpers
 
-The standard whole-flow verification pass is orchestrated by `savant.py workflow inspect` (see "Standard verification pass" below). Lower-level helpers: internal app API in `savant.py app`; compact recipe mapping in `savant.py workflow map`; validation-checkpoint targeting in `savant.py workflow targets`; batch node preview inspection in `savant.py preview nodes`; run-mode side effects in `../substrate/run-modes.md`. There is no rendered-canvas visual inspection — inspect through the API only.
+The standard whole-flow verification pass is `savant.py workflow verify` followed by `savant.py workflow inspect` (see "Standard verification pass" below). Lower-level helpers: internal app API in `savant.py app`; compact recipe mapping in `savant.py workflow map` (file-only — it reads a fetched recipe and needs no API at all); validation-checkpoint targeting in `savant.py workflow targets`; batch node preview inspection in `savant.py preview nodes` (needs `--workflow-json`); run-mode side effects in `../substrate/run-modes.md`. There is no rendered-canvas visual inspection — inspect through the API only.
 
 ## Scope
 
@@ -45,13 +45,13 @@ Inspection is read-only. It may diagnose a likely fix, but remediation belongs t
 For the routine post-import (Creator) or post-edit (Editor) verification — "is the created/edited flow structurally sound and producing the right output?" — run `savant.py workflow inspect` instead of issuing per-node Analyze calls and interpreting each by hand:
 
 ```bash
-savant.py workflow inspect "{flowUrl}" \
+savant.py workflow inspect "{flowUrl}" --recipe-json <after.json> \
   --imported-json <workflow.json> --expected-outputs-json <builder_to_creator.handoff.json> \
   --checkpoint "<stage>" [--checkpoint "<stage>" ...] \
   --output-path "$(savant.py session tmp-path "<task-name>" inspect.json)"
 ```
 
-It orchestrates `workflow_targets`/`node_previews`/`savant_app_api` and returns a pass/fail report over the standard checks: **persistence** (source JSON `nodes.length` + node names == live recipe after import), **runtime-smoke** (after create/save success, compute the requested checkpoints status-only and fail fast on Failed/Error/Canceled), **node-ok** (every checkpoint is `Ready`), **output-contract** (only after runtime-smoke passes, each planned output's destination/checkpoint schema matches that output's expected columns and grain/check contract), and **row-sanity** (a Ready-but-0-rows checkpoint is flagged). If runtime-smoke fails, the report includes `previewSkipped` and no output preview/schema checks are attempted. The verify pass computes at Interactive (1k) by default; pass `--mode analyze` only when a checkpoint needs full-data validation. `--expected-outputs-json` can point at a Builder-to-Creator handoff; the Inspector reads `sections.builder_preflight.output_destination_plan.outputs`. Name deterministic stages with `--checkpoint`; computing an AI/gen_ai terminal still costs that node's run time. The older `--expect-columns` flag is only for simple single-output checks.
+`--recipe-json` is required and is the live recipe from the MCP `fetch` tool on `savant://workflow/{flowId}`; the harness refuses a recipe whose flow id is not the target flow. It orchestrates `workflow_targets`/`node_previews`/`savant_app_api` and returns a pass/fail report over the standard checks: **persistence** (source JSON `nodes.length` + node names == live recipe after import — also checked independently by `savant.py workflow verify`), **runtime-smoke** (after create/save success, compute the requested checkpoints status-only and fail fast on Failed/Error/Canceled), **node-ok** (every checkpoint is `Ready`), **output-contract** (only after runtime-smoke passes, each planned output's destination/checkpoint schema matches that output's expected columns and grain/check contract), and **row-sanity** (a Ready-but-0-rows checkpoint is flagged). If runtime-smoke fails, the report includes `previewSkipped` and no output preview/schema checks are attempted. The verify pass computes at Interactive (1k) by default; pass `--mode analyze` only when a checkpoint needs full-data validation. `--expected-outputs-json` can point at a Builder-to-Creator handoff; the Inspector reads `sections.builder_preflight.output_destination_plan.outputs`. Name deterministic stages with `--checkpoint`; computing an AI/gen_ai terminal still costs that node's run time. The older `--expect-columns` flag is only for simple single-output checks.
 
 The harness is the runtime counterpart to `savant.py validate workflow` and owns the standard *mechanics*. The sections below are for what it does **not** do: targeted/diagnostic inspection (root-causing an unexpected result), interpreting row counts in business terms, no-data handling, and walkthroughs. Use the harness first; drop to the manual steps for judgment and for anything beyond the standard checks.
 
@@ -62,7 +62,7 @@ Use structured API inspection for every workflow fact the API can provide:
 1. Use `savant.py app` or its Python functions to read the workflow recipe with `GET /api/recipes/{flowId}`. Keep this JSON in memory unless the user asks for an export or you need a debug artifact.
 2. Use the recipe as the workflow map: node ids, labels, types, configs, expressions, source metadata, destinations, inlets, outlets, and branches.
 3. When data evidence is needed for one node, first check whether existing preview output is available (`--mode cached`). Compute that node only when the user's request or confirmed scope calls for it — `--mode interactive` for a fast 1k sample, `--mode analyze` when the answer depends on full data (totals, dedup, match-counts).
-4. When data evidence is needed for multiple selected checkpoints, use `savant.py preview nodes` so the helper returns output for each requested node id. The default (`--mode cached`) reads already-available preview status/output only; pass `--mode interactive` or `--mode analyze` to compute. See `../substrate/run-modes.md` for when to escalate.
+4. When data evidence is needed for multiple selected checkpoints, use `savant.py preview nodes` with `--workflow-json <recipe.json>` so the helper returns output for each requested node id. The default (`--mode cached`) reads already-available preview status/output only; pass `--mode interactive` or `--mode analyze` to compute. See `../substrate/run-modes.md` for when to escalate.
 5. The API recipe/output is the authoritative source for every workflow fact: recipe config, graph shape, row count, schema, sample rows, node status, and workflow errors. There is no browser/canvas source to consult.
 
 Do not treat API failure as permission to invent or guess. If session discovery, recipe read, Analyze, or output fetch fails, report the API failure plainly and stop. If Analyze returns a node failure, report it as workflow evidence.
@@ -73,7 +73,7 @@ Do not run Analyze/node previews for layout-only questions or edits. Layout, lab
 
 1. Parse the `https://app.savantlabs.io/en/app/flow/{flowId}?rns=...` URL.
 2. For status, health, issue, error, and fix questions, run `savant.py workflow health` first. It gathers recipe status, version status, Run/Test history, and source dataset matches, and does not compute by default. Add `--mode interactive` (or `--mode analyze`) only when the user asked for data behavior evidence and you want the single earliest-checkpoint preview. Do not start with downstream or parallel preview checks.
-3. For targeted behavior questions, call the shared helper to read the recipe and build the workflow map from JSON. Use `savant.py workflow map` when a compact graph map will speed orientation.
+3. For targeted behavior questions, build the workflow map from the fetched recipe JSON. Use `savant.py workflow map --input-json <recipe.json>` when a compact graph map will speed orientation; it needs no API access.
 4. If API orientation fails, stop and report that the workflow could not be inspected through the API. Do not reconstruct the workflow from the rendered canvas.
 5. Visual-layout questions (label overlap, group readability, connector routing) cannot be answered — there is no rendered-canvas inspection. Answer structure and data from the API; for layout, describe what the recipe graph implies and say the rendered canvas was not inspected.
 6. Capture the minimum map needed for the question:
@@ -101,8 +101,14 @@ Expected command shape:
 
 ```bash
 savant.py workflow health "{flowUrl}" \
+  --workflow-json <recipe.json> --sources-json <sources.json> \
   --output-path "$(savant.py session tmp-path "<task-name>" health.json)"
 ```
+
+`--workflow-json` is required: the recipe comes from the MCP `fetch` tool on
+`savant://workflow/{flowId}`, not from the API. `--sources-json` (the MCP `search` result for
+`types: ["source"]`) enables the dataset-matching leg; omit it and matching is *skipped*, not
+reported as zero matches. Run history and the optional preview still need `api_enabled`.
 
 The helper's source findings are enough to stop early when source steps are missing, ambiguous, or placeholder-like. In that case, report the source binding issue as the likely first blocker and avoid downstream Analyze calls until the sources are healthy.
 
@@ -118,7 +124,7 @@ This section is for **targeted/diagnostic** inspection — answering a specific 
    - mode or type selector
    - filter clauses, formulas, join keys, aggregation keys, flatten/explode paths, service settings, or other type-specific config
    - modifiers that affect graph shape, such as "Include false path"
-3. For data evidence, use API output first. For one checkpoint, read existing preview output (`--mode cached`), then compute that node only when the scope calls for it; for several, use `savant.py preview nodes "{flowUrl}" --node-ids '["node_a","node_b"]' --output-path "$(savant.py session tmp-path "<task-name>" node-previews.json)"` (add `--mode interactive` or `--mode analyze` to compute). Answer from the returned per-node status, schema, row count, and sample rows, and compare upstream vs downstream when the question is about data loss, joins, filters, summaries, or branches. (For the *standard* whole-flow pass, prefer `savant.py workflow inspect` above.)
+3. For data evidence, use API output first. For one checkpoint, read existing preview output (`--mode cached`), then compute that node only when the scope calls for it; for several, use `savant.py preview nodes "{flowUrl}" --workflow-json <recipe.json> --node-ids '["node_a","node_b"]' --output-path "$(savant.py session tmp-path "<task-name>" node-previews.json)"` (add `--mode interactive` or `--mode analyze` to compute). Answer from the returned per-node status, schema, row count, and sample rows, and compare upstream vs downstream when the question is about data loss, joins, filters, summaries, or branches. (For the *standard* whole-flow pass, prefer `savant.py workflow inspect` above.)
 4. If API data inspection cannot provide output, stop and report what could not be inspected. Do not substitute browser Data Preview reads for API output evidence.
 5. For unfamiliar config keys or node-type behavior, read `../components/{type}.md` before explaining the node.
 

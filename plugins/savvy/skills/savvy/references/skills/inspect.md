@@ -31,14 +31,18 @@ Internal app API mechanics are owned by `savant.py app`. Run-mode safety is owne
 
 When the user pastes a flow URL and wants to know **what the workflow does**, or asks to export/download/grab the JSON, answer at the business altitude before drilling into any node.
 
-**Export the JSON** (only when the user wants the file, or you need a durable artifact):
+**Get the JSON** with the MCP `fetch` tool on `savant://workflow/{flowId}` — the flow id is the
+segment after `/flow/` in the URL. It returns the same document the old CLI export downloaded — verified field-for-field against
+`GET /api/recipes/{id}` before that route was removed — and needs no credentials, so a plain read
+works even when `api_enabled` is false.
+
+Write it under the session tmp dir unless the user asks for a durable path (e.g. Downloads):
 
 ```bash
-savant.py app "{flowUrl}" --export-recipe \
-  --output-path "$(savant.py session tmp-path "<task-name>" "{flowName-or-flowId}.json")"
+savant.py session tmp-path "<task-name>" "{flowName-or-flowId}.json"   # resolve the path, then write the fetch result there
 ```
 
-Write the export under the session tmp dir unless the user asks for a durable path (e.g. Downloads). Do not print, log, or persist auth tokens. End by telling the user the local path of the exported JSON.
+End by telling the user the local path. There is no CLI export route any more.
 
 **Build the business summary from the recipe JSON.** Read the JSON first and reconstruct the declared process: inputs, major process blocks, branches, destinations, and likely business purpose. The default is **not** a node-by-node walkthrough — it is a concise business explanation grounded in the structure. Answer these in your head, then write flowing prose:
 
@@ -133,8 +137,14 @@ When the user asks for current status, health, issues, errors, broken sources, w
 
 ```bash
 savant.py workflow health "{flowUrl}" \
+  --workflow-json <recipe.json> --sources-json <sources.json> \
   --output-path "$(savant.py session tmp-path "<task-name>" health.json)"
 ```
+
+`--workflow-json` is required: the recipe comes from the MCP `fetch` tool on
+`savant://workflow/{flowId}`, not from the API. `--sources-json` (the MCP `search` result for
+`types: ["source"]`) enables the dataset-matching leg; omit it and matching is *skipped*, not
+reported as zero matches. Run history and the optional preview still need `api_enabled`.
 
 The helper reads the recipe, version status, Run/Test history, and source dataset matches. It does not compute by default. Add `--mode interactive` (or `--mode analyze` for full-data evidence) only when the user asked for data behavior evidence and you want the single earliest-checkpoint preview. It is designed to stop at the first likely blocker before downstream inspection.
 

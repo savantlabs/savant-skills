@@ -32,11 +32,10 @@ from pathlib import Path
 
 from savant_api import cli as api
 from savant_api import capabilities as savant_capabilities
-from savant_api import sources as sources_api
+from savant_api.recipe_input import load_id_set
 from contracts.folder_target import is_root_folder_target
 from savant_api.fileio import workspace_tmp
 from workflow import evidence as workflow_evidence
-from workflow import inspection as savant_inspect
 from validators import workflow as vw
 
 _CREATE_STATUSES = {
@@ -47,7 +46,8 @@ _CREATE_STATUSES = {
 }
 
 
-def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None = None):
+def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None = None,
+              sources_json: Path | None = None, providers_json: Path | None = None):
     wf = json.loads(Path(json_path).read_text(encoding="utf-8"))
     nodes = [n for n in (wf.get("nodes") or []) if isinstance(n, dict)]
     errors, warnings = vw.validate(Path(json_path), block_documentation_gaps=True)
@@ -60,8 +60,8 @@ def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None
     # The target workspace/namespace is the authenticated session's — the credentials' namespace,
     # the same one create and fetch all operate in. `home` (or the legacy alias `root`) targets
     # the Home folder (namespace root), which the import API represents as a null folder id. The folder id itself is not
-    # pre-resolved here: create_workflow_from_json reads the created workflow back and hard-fails
-    # unless created.folderId equals the requested id, so a bad/foreign id is caught at import.
+    # pre-resolved here: `workflow verify --operation create --expect-folder-id` hard-fails unless
+    # the created workflow reports the requested folder, so a bad/foreign id is caught there.
     root_target = is_root_folder_target(folder_id)
     folder: dict = {"id": None, "path": "(Home folder)"} if root_target else {"id": folder_id, "path": None}
     if api_enabled:
@@ -80,10 +80,13 @@ def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None
     # never false-positives.
     unresolved_ai_providers: list[str] = []
     if ctx is not None:
-        workspace_ids = sources_api.workspace_dataset_ids(ctx)
+        # Both id sets are MCP `search` results the caller supplies. None means "not supplied",
+        # which skips the check — never "the workspace has none", which would block every bound
+        # dataset and provider.
+        workspace_ids = load_id_set(sources_json, flag="--sources-json")
         if workspace_ids:
             unresolved_sources = vw.unresolved_source_dataset_ids(nodes, workspace_ids)
-        provider_ids = {p.get("id") for p in api.list_ai_providers(ctx) if isinstance(p, dict) and p.get("id")}
+        provider_ids = load_id_set(providers_json, flag="--providers-json")
         if provider_ids:
             unresolved_ai_providers = vw.unresolved_ai_provider_nodes(nodes, provider_ids)
 
@@ -129,7 +132,7 @@ def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None
     if unresolved_ai_providers:
         blocked_reasons.append(
             f"AI provider id(s) do not resolve in the TARGET workspace: {', '.join(unresolved_ai_providers)} "
-            "(providers are workspace-scoped; use a provider from the target workspace's list_ai_providers "
+            "(providers are workspace-scoped; use one from MCP `search` with types: [\"ai_provider\"] "
             "or the Savant Trial default — importing anyway silently drops these AI nodes)"
         )
     report = {
@@ -206,12 +209,13 @@ def duplicate_import_candidates(*, workflow_name: str, folder_id: str, report_pa
     return candidates
 
 
-def create_status(*, data_verified: bool | None, skip_inspect: bool) -> str:
-    if skip_inspect:
-        return "imported"
-    if data_verified:
-        return "verified"
-    return "created-with-issues"
+def after_json_path(flow_id: str) -> Path:
+    """Where the caller should write the MCP `fetch` result for the verify/inspect handoff.
+
+    A derived, predictable path is what makes the printed follow-up commands copy-pasteable
+    instead of a template the caller has to fill in.
+    """
+    return workflow_evidence.default_post_write_recipe_path(flow_id, "create")
 
 
 def main(argv=None) -> int:
@@ -220,6 +224,14 @@ def main(argv=None) -> int:
     p.add_argument("--folder-id", required=True, help="Target folder id, or `home` for the Home folder (namespace root; `root` is a legacy alias). The workflow is created in the authenticated session's namespace. Find the id via MCP search/fetch on the folder entity.")
     p.add_argument("--confirmed-namespace", required=True,
                    help="Namespace of the workspace the USER confirmed as the destination (from MCP search/whereami, recorded in the handoff's context_confirmation.namespace). Import is blocked if the session is in any other namespace — the destination workspace is user-named, never agent-chosen.")
+    p.add_argument("--sources-json", type=Path,
+                   help="MCP `search` result for types: [\"source\"], used to catch source dataset "
+                        "ids that do not resolve in the target workspace (they are silently dropped "
+                        "on import). Omit to skip that check.")
+    p.add_argument("--providers-json", type=Path,
+                   help="MCP `search` result for types: [\"ai_provider\"], used to catch AI nodes "
+                        "bound to a providerId that does not resolve here (the whole node is "
+                        "silently dropped on import). Omit to skip that check.")
     p.add_argument("--confirm-import", action="store_true",
                    help="Proceed past preflight to import + verify. Set ONLY after the user confirmed creation in chat.")
     p.add_argument("--expect-columns", help="Comma-separated expected final output columns (for the inspect contract).")
@@ -242,7 +254,8 @@ def main(argv=None) -> int:
     report_path = args.output_path or default_output_path(args.import_json)
 
     report, ctx, folder = preflight(
-        args.import_json, folder_id=args.folder_id, confirmed_namespace=args.confirmed_namespace
+        args.import_json, folder_id=args.folder_id, confirmed_namespace=args.confirmed_namespace,
+        sources_json=args.sources_json, providers_json=args.providers_json,
     )
 
     def emit(rep):
@@ -317,44 +330,50 @@ def main(argv=None) -> int:
         emit(out)
         print("CREATE: import did not return a flow id — verify manually.")
         return 1
-    expect = [c.strip() for c in args.expect_columns.split(",")] if args.expect_columns else None
-    expected_outputs = savant_inspect.load_expected_outputs(args.expected_outputs_json)
-    post_save_recipe_path = (
-        None if args.no_post_save_recipe
-        else args.post_save_recipe_path or workflow_evidence.default_post_write_recipe_path(str(flow_id), "create")
-    )
-    evidence = workflow_evidence.collect_post_write_evidence(
-        ctx=ctx,
-        flow_url=flow_url,
-        flow_id=str(flow_id),
-        operation="create",
-        imported_path=args.import_json,
-        expect_columns=expect,
-        expected_outputs=expected_outputs,
-        checkpoints=args.checkpoint,
-        sample_tier=args.sample_tier,
-        timeout=args.timeout_seconds,
-        inspect_enabled=not args.skip_inspect,
-        terminal_preview=not args.no_terminal_preview,
-        force_analyze=False,
-        post_write_recipe_path=post_save_recipe_path,
-        block_documentation_gaps=True,
-    )
-    evidence.pop("refetchedRecipe", None)
-    out["postSaveRecipePath"] = evidence.get("postSaveRecipePath")
-    out["inspect"] = evidence.get("inspect")
-    out["evidence"] = {k: v for k, v in evidence.items() if k not in {"postSaveRecipePath", "inspect"}}
-    out["status"] = create_status(
-        data_verified=evidence.get("dataOk"),
-        skip_inspect=args.skip_inspect,
-    )
+    # The import is done; nothing here can confirm it landed correctly, because that needs the
+    # created recipe read back and this toolchain no longer reads recipes. The caller re-fetches
+    # through MCP and runs the two commands below. Until `workflow verify` returns ok, this create
+    # is NOT verified and must not be reported as such.
+    after_json = after_json_path(str(flow_id))
+    verify_cmd = [
+        "python3 savant.py workflow verify --operation create",
+        f"--workflow-json {after_json}",
+        f"--expect-flow-id {flow_id}",
+        f"--expect-folder-id {folder.get('id') or ''}",
+        f"--source-json {Path(args.import_json).resolve()}",
+        "--block-documentation-gaps",
+    ]
+    inspect_cmd = [
+        "python3 savant.py workflow inspect",
+        f"{flow_url}",
+        f"--recipe-json {after_json}",
+        f"--imported-json {Path(args.import_json).resolve()}",
+    ]
+    if args.expect_columns:
+        inspect_cmd.append(f"--expect-columns {args.expect_columns}")
+    if args.expected_outputs_json:
+        inspect_cmd.append(f"--expected-outputs-json {args.expected_outputs_json}")
+    for name in args.checkpoint:
+        inspect_cmd.append(f"--checkpoint {name!r}")
+    if args.no_terminal_preview:
+        inspect_cmd.append("--skip-terminals")
+    out["status"] = "created-unverified"
+    out["verified"] = False
+    out["nextSteps"] = {
+        "1_fetch": f"MCP `fetch` on savant://workflow/{flow_id}, written to {after_json}",
+        "2_verify": " ".join(verify_cmd),
+        "3_inspect": None if args.skip_inspect else " ".join(inspect_cmd),
+    }
     api.save_json(out, report_path)
-    print(f"CREATE: {out['status']} — {flow_url}")
-    if out.get("postSaveRecipePath"):
-        print(f"  [ok ] post-save-workflow-json: {out['postSaveRecipePath']}")
-    summary = dict(out.get("inspect") or {})
-    savant_inspect.print_summary_lines(summary)
-    return 0 if out["status"] in ("verified", "imported") else 1
+    print(f"CREATE: imported, NOT YET VERIFIED — {flow_url}")
+    print("")
+    print("The import returned a flow, but nothing has confirmed it landed correctly yet.")
+    print("Run these before reporting the workflow as created:")
+    print(f"  1. Fetch the flow: MCP `fetch` on savant://workflow/{flow_id} -> {after_json}")
+    print(f"  2. {out['nextSteps']['2_verify']}")
+    if out["nextSteps"]["3_inspect"]:
+        print(f"  3. {out['nextSteps']['3_inspect']}")
+    return 0
 
 
 if __name__ == "__main__":
