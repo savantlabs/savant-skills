@@ -10,6 +10,7 @@ from pathlib import Path
 from . import sources
 from . import cli as api
 from .fileio import save_json, workspace_tmp
+from .recipe_input import load_records
 from .models import SavantAppApiError, SavantSessionContext
 
 OPENPYXL_DEPENDENCY = "openpyxl>=3.1,<4"
@@ -320,7 +321,7 @@ def create_csv_dataset(context, path: Path, name: str, delimiter: str = ",", sam
     return create_dataset(context, path, name, "csv", delimiter=delimiter, sample_rows=sample_rows)
 
 
-def create_datasets_bulk(context, manifest: list[dict]) -> dict:
+def create_datasets_bulk(context, manifest: list[dict], *, existing_json: Path | None = None) -> dict:
     """Create several datasets from one manifest — the deterministic loop the AI should not hand-run.
 
     Manifest items: {"file": <path>, "name": <display name>, and optional "type", "sheet",
@@ -329,20 +330,19 @@ def create_datasets_bulk(context, manifest: list[dict]) -> dict:
     Behavior contracts:
     - **Idempotent by name**: an item whose display name already resolves in the workspace is
       SKIPPED and its existing dataset id returned — re-runs never mint duplicate datasets
-      (same philosophy as one-import-then-edit-in-place for workflows).
+      (same philosophy as one-import-then-edit-in-place for workflows). The existing datasets come
+      from `existing_json`, the MCP `search` result for `types: ["source"]`; without it the
+      idempotency check cannot run and every item is treated as new, so re-runs CAN duplicate.
     - **Continue on error**: one bad file does not strand the rest; each item reports its own
       status, and the overall report separates created / skipped / failed.
     """
     if not isinstance(manifest, list) or not manifest:
         raise SavantAppApiError("Bulk dataset manifest must be a non-empty JSON list.")
-    try:
-        existing = {
-            str(item.get("name", "")).strip().casefold(): item
-            for item in sources.list_sources(context)
-            if isinstance(item, dict) and item.get("name")
-        }
-    except SavantAppApiError:
-        existing = {}
+    existing = {
+        str(item.get("name", "")).strip().casefold(): item
+        for item in load_records(existing_json, flag="--existing-json")
+        if item.get("name")
+    }
     created, skipped, failed = [], [], []
     for i, item in enumerate(manifest, 1):
         name = str(item.get("name") or "").strip()
@@ -410,6 +410,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-rows", type=int, default=0, help="Excel: number of leading rows to skip before the header row.")
     parser.add_argument("--delimiter", default=",")
     parser.add_argument("--sample-rows", type=int, default=100)
+    parser.add_argument("--existing-json", type=Path,
+                        help="MCP `search` result for types: [\"source\"]. Used by --manifest to skip "
+                             "datasets whose display name already exists. Without it a re-run can "
+                             "create duplicates.")
     parser.add_argument("--output-path", help="Optional path to write the created-source JSON.")
     args = parser.parse_args(argv)
     if bool(args.manifest) == bool(args.file or args.name):
@@ -421,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.manifest:
         manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
-        report = create_datasets_bulk(context, manifest)
+        report = create_datasets_bulk(context, manifest, existing_json=args.existing_json)
         for e in report["created"]:
             print(f"  [ok  ] created '{e['name']}' id={e['datasetId']} status={e.get('status')}")
         for e in report["skipped"]:

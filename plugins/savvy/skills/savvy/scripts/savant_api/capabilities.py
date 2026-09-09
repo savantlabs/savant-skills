@@ -7,7 +7,7 @@ Capability detection has layers, resolved in this order:
    the live API ships `api_supported: false` (no API scripts, no creator); a package that ships
    the API has `true`. If false, the answer is "not supported" — no dynamic probe, manual mode only.
 2. **Dynamic session probe** (only when `api_supported` is true) — is there a usable authenticated
-   session we can reach? A read-only call (an authenticated `GET /api/sessions/tab`) decides
+   session we can reach? Resolving the MCP-written credentials (no request) decides
    available vs unavailable + reason.
 
 The **execution-bridge** layer (e.g. Desktop Commander in Cowork) is detected by the agent, not
@@ -53,17 +53,24 @@ def read_capabilities() -> dict:
 
 
 def probe_session() -> tuple[str, str | None]:
-    """Read-only check that a usable authenticated session exists. Returns (status, reason)
+    """Read-only check that usable Savant credentials exist. Returns (status, reason)
     with status in {available, unavailable}.
 
-    Probes the credentials' session with one lightweight authenticated GET (`/api/sessions/tab`),
-    which validates both the token and the workspace tab and returns 401 when stale.
+    Resolves the MCP-written creds file (or the env vars) and validates its shape. This used to be
+    an authenticated `GET /api/sessions/tab`, which additionally proved the token and workspace tab
+    were still live by returning 401 when stale. That endpoint is gone, and no MCP tool reports
+    bridge-token liveness, so **a stale token now reads as `available` here and fails at the first
+    write instead** — with a 401 naming the operation. Credentials are minted per session by the
+    `get-api-credentials` MCP tool, so a stale one is the uncommon case; the trade was accepted to
+    take the read-only routes off the API entirely. Do not re-add a probe request: it would put
+    every capability check back on the app API.
     """
     try:
-        from savant_api.httpclient import request
         from savant_api.session import discover_session
 
-        request(discover_session(None), "/api/sessions/tab")
+        context = discover_session(None)
+        if not context.access_token or not context.tab_id or not context.origin:
+            return "unavailable", "credentials resolved without a token, tab id or API base URL"
         return "available", None
     except Exception as exc:  # any failure here means no usable session/bridge
         return "unavailable", f"{type(exc).__name__}: {exc}"
