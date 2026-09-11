@@ -156,6 +156,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirmed-namespace", help="Required for --import-json: namespace of the workspace the USER confirmed as the destination. Import is blocked if the session is in any other namespace — the destination workspace is user-named, never agent-chosen.")
     parser.add_argument("--no-import-poll", action="store_true", help="Do not poll the import promise after uploading.")
     parser.add_argument("--save-recipe-from", type=Path, help="Update an existing workflow from a full live-recipe JSON. Rejects creation-shaped workflow JSON.")
+    parser.add_argument("--before-json", type=Path,
+                        help="The pre-edit recipe, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}. Required by --save-recipe-from: it proves "
+                             "the requested change is non-empty before anything is written, and is "
+                             "the baseline `workflow verify --before-json` diffs the result against.")
     parser.add_argument("--save-metadata-from", type=Path, help="Live-save flow metadata (name/description/tags) through PUT /api/recipes/{flowId}/metadata. description renders as Markdown.")
     parser.add_argument("--confirm-live-save", action="store_true", help="Required with --save-recipe-from to prevent accidental workflow mutation.")
     parser.add_argument("--list-executions", action="store_true", help="Write normalized Run/Test history for this workflow.")
@@ -260,7 +265,8 @@ def main(argv: list[str] | None = None) -> int:
         desired = load_json(args.save_recipe_from)
         if not isinstance(desired, dict):
             raise SavantAppApiError("--save-recipe-from must point to a JSON object.")
-        report = update_workflow_recipe(context, flow_id, desired)
+        before = load_recipe(args.before_json, flag="--before-json")
+        report = update_workflow_recipe(context, flow_id, desired, before=before)
         report_path = args.output_path or _default_save_report_path(flow_id)
         save_json(report, report_path)
         if args.quiet:
@@ -279,22 +285,28 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(desired_id, str) and desired_id and desired_id != flow_id:
             raise SavantAppApiError(f"Metadata id `{desired_id}` does not match URL flow id `{flow_id}`.")
         save_response = save_metadata(context, flow_id, desired)
-        after = get_recipe(context, flow_id)
         report = {
             "flowId": flow_id,
             "requestedName": desired.get("name"),
             "requestedDescriptionStart": (desired.get("description") or "")[:80],
-            "persistedName": after.get("name") if isinstance(after, dict) else None,
-            "persistedDescriptionStart": (after.get("description") or "")[:80] if isinstance(after, dict) else None,
-            "persistedTags": after.get("tags") if isinstance(after, dict) else None,
+            "requestedTags": desired.get("tags"),
             "saveResponse": save_response,
+            # Whether the save landed is not knowable from here any more — it needs the flow read
+            # back after the write, and this toolchain no longer reads recipes. The caller
+            # re-fetches through MCP and runs the verify below, which diffs name/description/tags.
+            "verified": False,
+            "verifyCommand": (
+                f"fetch savant://workflow/{flow_id} -> after.json, then: python3 savant.py workflow "
+                f"verify --operation metadata --workflow-json after.json --expect-flow-id {flow_id} "
+                f"--expect-metadata-json {args.save_metadata_from}"
+            ),
         }
         report_path = args.output_path or _default_save_report_path(flow_id)
         save_json(report, report_path)
         if args.quiet:
             print(report_path)
         else:
-            print(f"Saved metadata for {flow_id}; wrote verification report to {report_path}")
+            print(f"Saved metadata for {flow_id} (not yet verified); wrote report to {report_path}")
         return 0
 
     if (args.list_executions or args.execution_detail) and not args.inspect_node:

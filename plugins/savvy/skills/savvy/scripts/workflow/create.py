@@ -54,7 +54,9 @@ def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None
     missing_ai_providers = vw.ai_missing_provider_nodes(nodes)
     placeholder_sources = vw.source_placeholder_nodes(nodes)
 
-    capability = savant_capabilities.detect()
+    # A write is coming, so prove the session rather than assuming it: a stale token or an
+    # unreachable host must fail here, not after the user has confirmed the import.
+    capability = savant_capabilities.detect(probe_live=True)
     api_enabled = bool(capability.get("api_enabled"))
     ctx = None
     # The target workspace/namespace is the authenticated session's — the credentials' namespace,

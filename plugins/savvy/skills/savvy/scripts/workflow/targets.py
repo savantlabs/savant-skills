@@ -21,7 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from savant_api.cli import SavantAppApiError, save_json  # noqa: E402
 from savant_api.fileio import workspace_tmp  # noqa: E402
-from workflow.map import build_workflow_map, load_recipe  # noqa: E402
+from workflow.map import build_workflow_map, load_map_input  # noqa: E402
 
 
 HIGH_VALUE_TYPES = {
@@ -196,14 +196,18 @@ def print_summary(report: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("flow_url", nargs="?", help="Savant flow URL to analyze.")
-    parser.add_argument("--input-json", type=Path, help="Local workflow JSON file to analyze instead of a live flow URL.")
+    parser.add_argument("flow_url", nargs="?",
+                        help="Optional Savant flow URL, recorded as provenance and checked against "
+                             "the JSON's flow id. Not fetched.")
+    parser.add_argument("--input-json", type=Path, required=True,
+                        help="The workflow JSON to analyze, fetched with the MCP `fetch` tool on "
+                             "savant://workflow/{flowId}. This route never reads the API.")
     parser.add_argument("--map-output", type=Path, help="Optional path to also write the workflow map JSON.")
     parser.add_argument("--output-path", type=Path, help="Where to write workflow targets JSON.")
     parser.add_argument("--json-only", action="store_true", help="Do not print the text summary.")
     args = parser.parse_args(argv)
 
-    recipe, source_context = load_recipe(flow_url=args.flow_url, input_json=args.input_json)
+    recipe, source_context = load_map_input(flow_url=args.flow_url, input_json=args.input_json)
     workflow_map = build_workflow_map(recipe, source_context=source_context)
     if args.map_output:
         save_json(workflow_map, args.map_output)

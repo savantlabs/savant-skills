@@ -2,6 +2,15 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.0.4 — 2026-09-11
+
+- Renaming a workflow or editing its description or tags reports what happened. The change was
+  reaching Savant, but the command stopped with an error straight afterwards, so there was no way
+  to tell whether it had been saved.
+- Suggested validation checkpoints work again, and no longer need a live connection.
+- An expired sign-in is now caught before a workflow is built rather than at the moment it is
+  saved, so the work isn't finished and then lost to a session that had already lapsed.
+
 ## 1.0.3 — 2026-09-08
 
 - Explaining a workflow, mapping its structure, and exporting its definition no longer need live

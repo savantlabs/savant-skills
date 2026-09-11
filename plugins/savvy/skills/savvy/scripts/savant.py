@@ -61,7 +61,6 @@ API_REQUIRED_ROUTES = {
     ("workflow", "edit"),
     ("workflow", "inspect"),
     ("workflow", "health"),
-    ("workflow", "targets"),
     ("usage", "admin"),
 }
 

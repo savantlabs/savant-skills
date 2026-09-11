@@ -82,7 +82,7 @@ Do not run Analyze/node previews for layout-only questions or edits. Layout, lab
    - edges / outlet pseudo-nodes
    - group labels when present in the recipe
 
-Use `savant.py workflow targets` when you need a starting list of likely validation checkpoints for inspection or full-delivery verification. Treat its output as suggestions, not a mandatory checklist; the user's question and workflow shape decide which targets matter.
+Use `savant.py workflow targets --input-json <recipe.json>` (the recipe being the MCP `fetch` result) when you need a starting list of likely validation checkpoints for inspection or full-delivery verification. Treat its output as suggestions, not a mandatory checklist; the user's question and workflow shape decide which targets matter.
 
 The flow name is required evidence for any first response about a specific flow. If it cannot be read, say so.
 
