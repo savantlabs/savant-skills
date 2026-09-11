@@ -228,13 +228,17 @@ def _validator_check(
 
 def _api_check() -> tuple[dict[str, Any], list[str]]:
     try:
-        capability = savant_capabilities.detect()
+        capability = savant_capabilities.detect(probe_live=True)
     except Exception as exc:  # noqa: BLE001 - gate reports capability failures plainly.
         capability = {"api_enabled": False, "reason": f"{type(exc).__name__}: {exc}"}
     if bool(capability.get("api_enabled")):
         return _check_result("api_enabled", True, "Savant API is enabled for the authenticated session."), []
     reason = capability.get("reason") or capability.get("detail") or "API is not available."
-    actions = ["Sign in to Savant in the target workspace, then rerun this gate."]
+    actions = [
+        "Re-mint credentials with the `get-api-credentials` MCP tool, then rerun this gate.",
+        "If that does not clear it, sign in to Savant in the target workspace, or confirm the "
+        "Savant host is reachable from this environment.",
+    ]
     return _check_result("api_enabled", False, f"Savant API is not enabled: {reason}"), actions
 
 

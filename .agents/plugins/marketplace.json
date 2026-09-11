@@ -4,7 +4,7 @@
     "name": "Savant"
   },
   "description": "Official Savant marketplace for AI skills and plugins. Connect your AI agent to Savant to describe, build, and inspect data workflows in natural language.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "metadata": {
     "pluginRoot": "./plugins"
   },

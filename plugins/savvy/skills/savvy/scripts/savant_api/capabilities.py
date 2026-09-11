@@ -52,18 +52,46 @@ def read_capabilities() -> dict:
         return {}
 
 
-def probe_session() -> tuple[str, str | None]:
-    """Read-only check that usable Savant credentials exist. Returns (status, reason)
+LIVE_PROBE_PATH = "/api/sessions/tab"
+
+
+def _live_probe_reason(exc: Exception) -> str:
+    """Name the cause of a failed live probe, so the caller does not have to guess."""
+    text = str(exc)
+    if " failed: 401" in text:
+        return (
+            "live session probe returned 401: the bridge token is stale. Call the "
+            "`get-api-credentials` MCP tool again to re-mint it, then retry."
+        )
+    if " failed: 403" in text:
+        return (
+            "live session probe returned 403: the request was refused before it could act as this "
+            "session. On a sandboxed host this is usually a network egress policy blocking the "
+            "Savant host rather than a Savant permission — check whether the host is reachable at "
+            "all before treating it as an access problem."
+        )
+    return f"live session probe failed: {text[:300]}"
+
+
+def probe_session(probe_live: bool = False) -> tuple[str, str | None]:
+    """Read-only check that a usable Savant session exists. Returns (status, reason)
     with status in {available, unavailable}.
 
-    Resolves the MCP-written creds file (or the env vars) and validates its shape. This used to be
-    an authenticated `GET /api/sessions/tab`, which additionally proved the token and workspace tab
-    were still live by returning 401 when stale. That endpoint is gone, and no MCP tool reports
-    bridge-token liveness, so **a stale token now reads as `available` here and fails at the first
-    write instead** — with a 401 naming the operation. Credentials are minted per session by the
-    `get-api-credentials` MCP tool, so a stale one is the uncommon case; the trade was accepted to
-    take the read-only routes off the API entirely. Do not re-add a probe request: it would put
-    every capability check back on the app API.
+    Two depths:
+
+    - **Default — shape only, no request.** Resolves the MCP-written creds file (or the env vars)
+      and validates its shape. Read-only routes take this path, which is what keeps explaining,
+      mapping and exporting a workflow off the app API entirely.
+    - **`probe_live=True` — one authenticated `GET /api/sessions/tab`.** Proves the token, the
+      workspace tab, and that the host is reachable at all; the endpoint returns 401 on a stale
+      token (verified live 2026-09-11 against a valid and a corrupted token).
+
+    A shape-only check sees neither a stale token nor a blocked egress path: both read as
+    `available` and surface at the first write instead. Write routes therefore pass
+    `probe_live=True` — they are about to call the API anyway, so the extra request buys fail-fast
+    for free, turning a failure *after* a flow is built and user-confirmed into one at the gate.
+    Do not make the live probe unconditional: that would put every capability check, including the
+    offline and read-only ones, back on the app API.
     """
     try:
         from savant_api.session import discover_session
@@ -71,12 +99,26 @@ def probe_session() -> tuple[str, str | None]:
         context = discover_session(None)
         if not context.access_token or not context.tab_id or not context.origin:
             return "unavailable", "credentials resolved without a token, tab id or API base URL"
-        return "available", None
     except Exception as exc:  # any failure here means no usable session/bridge
         return "unavailable", f"{type(exc).__name__}: {exc}"
 
+    if not probe_live:
+        return "available", None
 
-def detect() -> dict:
+    try:
+        from savant_api.httpclient import request
+
+        request(context, LIVE_PROBE_PATH)
+    except Exception as exc:  # stale token, unreachable host, blocked egress
+        return "unavailable", _live_probe_reason(exc)
+    return "available", None
+
+
+def detect(probe_live: bool = False) -> dict:
+    """Build the capability snapshot. `probe_live` selects the probe depth — see `probe_session`.
+
+    The emitted `probe` field records which depth backed `api_enabled`, so a consumer reading a
+    cached snapshot can tell a proven session from an assumed one."""
     from contracts.tracking_tag import savvy_version, tracking_tag
 
     caps = read_capabilities()
@@ -85,6 +127,7 @@ def detect() -> dict:
         "tracking_tag": tracking_tag(),
         "api_supported": bool(caps.get("api_supported")),
         "api_enabled": False,
+        "probe": "live" if probe_live else "shape",
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
     if not result["api_supported"]:
@@ -95,7 +138,7 @@ def detect() -> dict:
             "build workflow JSON only; no creator step."
         )
         return result
-    session, reason = probe_session()
+    session, reason = probe_session(probe_live)
     result["session"] = session
     result["api_enabled"] = session == "available"
     result["mode"] = "api" if result["api_enabled"] else "manual"
@@ -103,8 +146,12 @@ def detect() -> dict:
         result["reason"] = reason
     if session != "available":
         result["detail"] = (
-            "API is supported but no usable session was found. Ask the user to sign in to the target "
-            "workspace in Savant, or proceed in manual mode with user-provided dataset ids."
+            "The live session probe failed, so a write would fail too. Re-mint credentials with the "
+            "`get-api-credentials` MCP tool and retry; if that does not help, the Savant host is not "
+            "reachable from this environment. Do not start a create or edit until this resolves."
+            if probe_live
+            else "API is supported but no usable session was found. Ask the user to sign in to the "
+            "target workspace in Savant, or proceed in manual mode with user-provided dataset ids."
         )
     return result
 
@@ -116,8 +163,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional path to write the capabilities JSON. Defaults to tmp/<ai-session-id>/savant-capabilities.json.",
     )
     p.add_argument("--quiet", action="store_true", help="Print only the resolved mode (api/manual).")
+    p.add_argument(
+        "--probe-live",
+        action="store_true",
+        help="Prove the session with one authenticated GET /api/sessions/tab instead of only checking "
+        "that credentials resolve. Use before a write (create/edit): it catches a stale token or an "
+        "unreachable host at the gate rather than at the first write. Read-only routes omit it.",
+    )
     args = p.parse_args(argv)
-    result = detect()
+    result = detect(probe_live=args.probe_live)
     output_path = Path(args.output_path) if args.output_path else workspace_tmp("savant-capabilities.json")
     save_json(result, output_path)
     print(result.get("mode") if args.quiet else json.dumps(result, indent=2))
