@@ -37,7 +37,7 @@ The page currently uses usage event type `bot_run` for workflow run usage.
 
 Before using admin usage APIs, resolve the snapshot path with `savant.py session tmp-path savant-capabilities.json`, read that file, and proceed only when `api_enabled: true`. If the snapshot is missing or stale for the current task, refresh it with `savant.py capabilities --output-path <resolved-capability-path>`. If `api_enabled` is false, say that live admin usage data is not available from this package/session and do not claim usage logs were checked.
 
-Admin usage data comes from the endpoints below; they return the usage log directly when the session's account has admin access (the minted credentials carry that permission).
+Admin usage data comes from the endpoints below; they return the usage log directly when the session's account has admin access (the bound session carries that permission).
 
 All three endpoints accept the same payload shape:
 
@@ -74,7 +74,7 @@ savant.py usage admin \
   --csv-output tmp/admin-usage/usage_log.csv
 ```
 
-The helper uses the session's minted credentials, polls the async promises, normalizes `totalTokens` as `inputTokens + outputTokens`, and writes only requested outputs.
+The helper uses the bound session, polls the async promises, normalizes `totalTokens` as `inputTokens + outputTokens`, and writes only requested outputs.
 
 ## Expected event fields
 
@@ -131,7 +131,7 @@ Do not claim complete organization-wide usage unless the admin session and selec
 
 ## Failure modes
 
-- If credentials are missing or expired, re-mint them with `get-api-credentials` (see SKILL.md auth) and retry.
+- If the session is missing or a call returns 401, re-bind the toolchain with `bind-toolchain` (see SKILL.md auth) and retry.
 - If the endpoints return 401/403, the current user likely lacks admin usage access; do not try to bypass permissions.
 - If the response shape changes, record the mismatch and report it; do not fall back to UI scraping.
 - Do not print, log, or persist auth tokens, cookies, or full request headers.

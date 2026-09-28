@@ -1,8 +1,11 @@
 {
   "mcpServers": {
-    "Savvy": {
+    "Savvy Plugin": {
       "type": "http",
-      "url": "https://savvy.savantlabs.io/mcp?surface=plugin"
+      "url": "https://savvy.savantlabs.io/mcp?surface=plugin",
+      "headers": {
+        "X-Savant-Plugin-Version": "2"
+      }
     }
   }
 }

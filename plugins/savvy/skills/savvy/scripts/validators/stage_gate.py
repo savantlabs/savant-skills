@@ -235,7 +235,8 @@ def _api_check() -> tuple[dict[str, Any], list[str]]:
         return _check_result("api_enabled", True, "Savant API is enabled for the authenticated session."), []
     reason = capability.get("reason") or capability.get("detail") or "API is not available."
     actions = [
-        "Re-mint credentials with the `get-api-credentials` MCP tool, then rerun this gate.",
+        "Re-bind the toolchain: call the `bind-toolchain` MCP tool with the pairingHash from "
+        "`savant.py session pair`, then rerun this gate.",
         "If that does not clear it, sign in to Savant in the target workspace, or confirm the "
         "Savant host is reachable from this environment.",
     ]
