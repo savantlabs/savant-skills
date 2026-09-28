@@ -107,8 +107,8 @@ def preflight(json_path: str, *, folder_id: str, confirmed_namespace: str | None
         if not session_ns:
             blocked_reasons.append(
                 "the session namespace could not be determined, so it cannot be verified against "
-                f"the user-confirmed workspace namespace `{confirmed_ns}` — re-mint credentials in "
-                "the confirmed workspace (MCP switch-workspace) and retry"
+                f"the user-confirmed workspace namespace `{confirmed_ns}` — switch to the confirmed "
+                "workspace (MCP switch-workspace), re-run `session bind` with --namespace, and retry"
             )
         elif session_ns != confirmed_ns:
             blocked_reasons.append(

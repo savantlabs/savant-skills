@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets
+import stat
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,26 +14,35 @@ from .fileio import workspace_tmp
 from .models import DEFAULT_ORIGIN, FlowUrl, SavantAppApiError, SavantSessionContext, SavantUrl
 
 
-# Default creds-file name under the session tmp dir. The chat client (the only MCP
-# speaker) calls `get-api-credentials` and writes the minted bridge token here; this
-# shell process reads it. `SAVANT_CREDS_FILE` overrides the path. See
-# `context/architecture/skill-api-migration.md`.
+# Pairing (ENG-985). This shell generates its own api bearer secret (`session pair`) and
+# keeps it in the pair file below; only the secret's SHA-256 ever crosses the chat client,
+# which hands it to the `bind-toolchain` MCP tool. The server stores the hash and accepts
+# the secret as a session. No credential is ever minted server-side or returned over MCP.
+# `SAVANT_PAIR_FILE` overrides the path.
+PAIR_FILE_NAME = "savant-pair.json"
+PAIR_SECRET_PREFIX = "xmp-"
+# Bytes of entropy behind the secret; hex-encoded to 64 chars. The server refuses paired
+# secrets shorter than 32 chars after the prefix.
+PAIR_SECRET_BYTES = 32
+
+# Creds file under the session tmp dir: { token, tabId, apiBaseUrl, namespace }. Written by
+# `session bind` from the pair file plus the non-secret `bind-toolchain` response; read by
+# every API call in this package. `SAVANT_CREDS_FILE` overrides the path.
 CREDS_FILE_NAME = "savant-creds.json"
 
 
 # --- Browser-spec compatibility surface -------------------------------------------------
 #
 # The old session resolver scraped the browser's localStorage (LevelDB) to lift the
-# logged-in token. That dependency is gone: the chat client now mints a bridge token over
-# MCP and hands it to us via a creds file. These types remain only so the `--browser` CLI
-# flag still parses; they no longer select a real code path. See
-# `context/architecture/skill-api-migration.md`.
+# logged-in token. That dependency is gone: the shell pairs its own secret with the MCP
+# grant (see the pairing section below). These types remain only so the `--browser` CLI
+# flag still parses; they no longer select a real code path.
 
 
 @dataclass(frozen=True)
 class BrowserSpec:
     """Inert compatibility shim. Browser-session scraping was removed; the `--browser`
-    flag is accepted but ignored. Credentials come from the MCP-written creds file."""
+    flag is accepted but ignored. Credentials come from the paired creds file."""
 
     name: str
     macos_bundle_id: str = ""
@@ -112,16 +124,137 @@ def ensure_rns(url: str, namespace: str | None) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(pairs)))
 
 
+# --- Toolchain pairing (ENG-985) --------------------------------------------------------
+#
+# Reverse-direction credential handoff. The secret is born here and never leaves this
+# machine: `session pair` generates it, stores it 0600 in the session tmp dir, and prints
+# only its SHA-256. The chat client passes that hash to the `bind-toolchain` MCP tool; the
+# server records `xmp-<hash>` against the caller's OAuth grant and, on the api side, hashes
+# every presented `xmp-` bearer before lookup. Knowing the hash (or the stored row) is not
+# enough to authenticate. `session bind` then completes the creds file from the tool's
+# non-secret response (apiBaseUrl, tabId).
+
+
+def pair_file_path() -> Path:
+    """Resolve the pair-file path: SAVANT_PAIR_FILE if set, else the session tmp dir."""
+    override = os.environ.get("SAVANT_PAIR_FILE")
+    if override:
+        return Path(override).expanduser()
+    return workspace_tmp(PAIR_FILE_NAME)
+
+
+def generate_pairing_secret() -> str:
+    return PAIR_SECRET_PREFIX + secrets.token_hex(PAIR_SECRET_BYTES)
+
+
+def is_pairing_secret(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith(PAIR_SECRET_PREFIX)
+        and len(value) - len(PAIR_SECRET_PREFIX) >= 32
+    )
+
+
+def pairing_hash(secret: str) -> str:
+    """Lowercase hex SHA-256 of the WHOLE secret, prefix included — must match the server."""
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write `payload` to `path` readable by this user only, creating parents 0700."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(path, flags, stat.S_IRUSR | stat.S_IWUSR)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    try:
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+
+
+def _read_pairing_secret(path: Path) -> str | None:
+    """Return the secret held in an existing pair file, or None if absent/unusable."""
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    secret = raw.get("secret") if isinstance(raw, dict) else None
+    return secret if is_pairing_secret(secret) else None
+
+
+def ensure_pairing(path: Path | None = None) -> dict[str, Any]:
+    """Create the pair file if needed and return `{pairingHash, pairFile, created}`.
+
+    Idempotent per AI session: an existing usable pair file is reused so that a re-bind
+    renews the same server session instead of minting a new one. The returned dict never
+    contains the secret — it is what `session pair` prints and what the chat client sees.
+    """
+    resolved = pair_file_path() if path is None else path
+    secret = _read_pairing_secret(resolved)
+    created = secret is None
+    if created:
+        secret = generate_pairing_secret()
+        _write_private_json(
+            resolved, {"secret": secret, "pairingHash": pairing_hash(secret)}
+        )
+    return {"pairingHash": pairing_hash(secret), "pairFile": str(resolved), "created": created}
+
+
+def bind_credentials(
+    api_base_url: str,
+    tab_id: str,
+    namespace: str | None = None,
+    *,
+    pair_path: Path | None = None,
+    creds_path: Path | None = None,
+) -> dict[str, Any]:
+    """Write the creds file from the pair secret plus the `bind-toolchain` response.
+
+    Returns `{credsFile, apiBaseUrl, tabId, namespace}` — never the secret. Fails if no
+    pair file exists: binding without pairing means the server never saw this secret's
+    hash, so the API would reject it anyway."""
+    if not api_base_url or not api_base_url.strip():
+        raise SavantAppApiError("--api-base-url is required (the `bind-toolchain` apiBaseUrl).")
+    if not tab_id or not tab_id.strip():
+        raise SavantAppApiError("--tab-id is required (the `bind-toolchain` tabId).")
+    resolved_pair = pair_file_path() if pair_path is None else pair_path
+    secret = _read_pairing_secret(resolved_pair)
+    if secret is None:
+        raise SavantAppApiError(
+            f"No pairing secret at `{resolved_pair}`. Run `savant.py session pair` first, "
+            "have the assistant call `bind-toolchain` with the printed pairingHash, then bind."
+        )
+    resolved_creds = _creds_file_path() if creds_path is None else creds_path
+    payload = {
+        "token": secret,
+        "tabId": tab_id.strip(),
+        "apiBaseUrl": api_base_url.strip(),
+        "namespace": namespace.strip() if isinstance(namespace, str) and namespace.strip() else None,
+    }
+    _write_private_json(resolved_creds, payload)
+    invalidate_session_cache()
+    return {
+        "credsFile": str(resolved_creds),
+        "apiBaseUrl": payload["apiBaseUrl"],
+        "tabId": payload["tabId"],
+        "namespace": payload["namespace"],
+    }
+
+
 # --- Creds-file session resolution ------------------------------------------------------
 #
-# The creds file is the handoff between the chat client (MCP speaker) and this shell (API
-# executor). The client writes { token, tabId, apiBaseUrl, namespace } after calling
-# `get-api-credentials`; we read it and build the SavantSessionContext every downstream
-# module already expects. Nothing here speaks MCP. See skill-api-migration.md.
+# The creds file is the handoff between the pairing step and the API executor. `session
+# bind` writes { token, tabId, apiBaseUrl, namespace } (token = the locally generated
+# pairing secret); we read it and build the SavantSessionContext every downstream module
+# already expects. Nothing here speaks MCP.
 
 # Parsed-creds cache, keyed by resolved file path. invalidate_session_cache() clears it on
-# a 401/403 so the next call re-reads the file (the client may have re-minted a fresh
-# token). The bearer token lives only in this process's memory.
+# a 401/403 so the next call re-reads the file. The bearer secret lives only in this
+# process's memory and the 0600 pair/creds files.
 _CREDS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
@@ -132,9 +265,10 @@ def _session_cache_enabled() -> bool:
 def invalidate_session_cache() -> None:
     """Drop the cached creds parse so the next discovery re-reads the file.
 
-    Called by the HTTP layer on a 401/403 (the cached token is stale). The client is
-    expected to re-mint via `get-api-credentials` and rewrite the creds file; the next
-    discover_session() then picks up the fresh token."""
+    Called by the HTTP layer on a 401/403. The session's sliding window (4h idle) lapsed
+    or the grant was revoked; the chat client is expected to call `bind-toolchain` again
+    with the same pairingHash, which renews the server row without changing the secret.
+    Clearing the cache also covers a `session bind` that rewrote the creds file."""
     _CREDS_CACHE.clear()
 
 
@@ -147,11 +281,11 @@ def _creds_file_path() -> Path:
 
 
 def _env_creds() -> dict[str, Any] | None:
-    """Build creds from the environment — the primary credential path.
+    """Build creds from the environment — an override for tests and manual runs.
 
     Set SAVANT_API_TOKEN + SAVANT_API_TAB + SAVANT_API_BASE_URL (and optionally
     SAVANT_API_NAMESPACE). Returns None when they aren't all set, so the caller
-    falls back to the creds file."""
+    falls back to the creds file written by `session bind` (the normal path)."""
     token = os.environ.get("SAVANT_API_TOKEN")
     tab_id = os.environ.get("SAVANT_API_TAB")
     base_url = os.environ.get("SAVANT_API_BASE_URL")
@@ -178,10 +312,10 @@ def _read_creds() -> dict[str, Any]:
 
     if not path.exists():
         raise SavantAppApiError(
-            "No Savant credentials found. Set SAVANT_API_TOKEN, SAVANT_API_TAB, and "
-            "SAVANT_API_BASE_URL (optionally SAVANT_API_NAMESPACE), or write the "
-            f"`get-api-credentials` response to a creds file at `{path}`. Have the "
-            "assistant call the `get-api-credentials` MCP tool first."
+            f"No Savant credentials found at `{path}`. Pair the toolchain first: run "
+            "`savant.py session pair` (prints a pairingHash), have the assistant call the "
+            "`bind-toolchain` MCP tool with that hash, then run `savant.py session bind "
+            "--api-base-url <apiBaseUrl> --tab-id <tabId>` with the values it returned."
         )
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -207,10 +341,9 @@ def _context_from_creds(
 ) -> SavantSessionContext:
     # apiBaseUrl from the creds file is the authority for the origin; fall back to the
     # caller-supplied origin (parsed from a flow/folder URL) only when absent. The MCP
-    # `get-api-credentials` tool returns apiBaseUrl WITH a trailing `/api`, but every
-    # endpoint path in this package already starts with `/api` (httpclient does
-    # `origin + path`). Normalize to a bare origin so we don't double-prefix to
-    # `/api/api/...`.
+    # `bind-toolchain` tool returns apiBaseUrl WITH a trailing `/api`, but every endpoint
+    # path in this package already starts with `/api` (httpclient does `origin + path`).
+    # Normalize to a bare origin so we don't double-prefix to `/api/api/...`.
     resolved_origin = str(creds.get("apiBaseUrl") or origin or DEFAULT_ORIGIN).rstrip("/")
     if resolved_origin.endswith("/api"):
         resolved_origin = resolved_origin[: -len("/api")]
@@ -233,7 +366,7 @@ def discover_session(
     *,
     browser_override: BrowserSpec | None = None,  # accepted for compat; ignored
 ) -> SavantSessionContext:
-    """Build the authenticated session context from the MCP-written creds file.
+    """Build the authenticated session context from the paired creds file.
 
     `browser_override` is accepted so the `--browser` CLI flag still parses, but it no
     longer selects anything — credentials come from the creds file (or env vars), never

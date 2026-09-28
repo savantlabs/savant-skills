@@ -245,6 +245,18 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("id", help="Print the resolved AI session id.")
     p_tmp = sub.add_parser("tmp-path", help="Print an absolute path under tmp/<ai-session-id>/.")
     p_tmp.add_argument("parts", nargs="*", help="Path segments under the session tmp directory.")
+    sub.add_parser(
+        "pair",
+        help="Generate (or reuse) this session's toolchain secret and print its pairingHash "
+        "for the `bind-toolchain` MCP tool. The secret itself is never printed.",
+    )
+    p_bind = sub.add_parser(
+        "bind",
+        help="Write the session creds file from the pair secret plus the `bind-toolchain` response.",
+    )
+    p_bind.add_argument("--api-base-url", required=True, help="apiBaseUrl returned by `bind-toolchain`.")
+    p_bind.add_argument("--tab-id", required=True, help="tabId returned by `bind-toolchain`.")
+    p_bind.add_argument("--namespace", default=None, help="Optional active workspace namespace.")
     p_lock = sub.add_parser(
         "lock-package",
         help="Customer-session startup guard: make package source read-only and verify session tmp is writable.",
@@ -264,6 +276,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "tmp-path":
             print(workspace_tmp(*args.parts))
+            return 0
+        if args.command == "pair":
+            from .session import ensure_pairing
+
+            print(json.dumps(ensure_pairing(), indent=2))
+            return 0
+        if args.command == "bind":
+            from .session import bind_credentials
+
+            report = bind_credentials(args.api_base_url, args.tab_id, args.namespace)
+            print(json.dumps(report, indent=2))
             return 0
         if args.command == "lock-package":
             report = lock_package_for_session(dry_run=args.dry_run, allow_internal=args.allow_internal)
