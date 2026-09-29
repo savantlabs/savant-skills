@@ -1,6 +1,6 @@
 ---
 name: savvy
-description: Work with the Savant Labs analytics platform in natural language — answer product/usage questions, build a new flow from a described process (planning it, then creating and verifying it live), apply (create or edit) a workflow in the live app, and inspect/export/explain an existing flow. Use this skill whenever the user mentions Savant or Savvy; asks what Savvy is, what it can do, whether it supports something, how it works, or how to get started; pastes a Savant flow URL (.../en/app/flow/...) or has a workflow JSON file; asks to build/design/create/import/edit/fix/inspect/debug/explain/export a data workflow or pipeline; or asks a conceptual question about Savant objects (dataset, system, folder, workspace, tool/step, Analyze mode, run/test history, admin usage). Also runs finance reconciliations — bank, credit-card, GL-to-subledger, intercompany, and balance-sheet account tie-outs ("reconcile", "bank rec", "recon", "tie out", month-end close).
+description: Work with the Savant Labs analytics platform in natural language — answer product questions, build a new flow from a described process (planning it, then creating and verifying it live), apply (create or edit) a workflow in the live app, and inspect/export/explain an existing flow. Use this skill whenever the user mentions Savant or Savvy; asks what Savvy is or can do, how it works, or how to get started; pastes a Savant flow URL (.../en/app/flow/...) or has a workflow JSON file; asks to build/design/create/import/edit/fix/inspect/debug/explain/export a data workflow or pipeline; or asks a conceptual question about Savant objects (dataset, system, folder, workspace, tool/step, Analyze mode, run/test history, admin usage). Also runs finance reconciliations — bank, credit-card, GL-to-subledger, intercompany, and balance-sheet tie-outs ("reconcile", "bank rec", month-end close) — and migrates Alteryx workflows (.yxmd/.yxwz/.yxmc/.yxzp, "replace Alteryx", "Designer workflow") into Savant with a migration guide.
 ---
 
 # Savvy
@@ -89,11 +89,13 @@ Routing notes:
 
 A solution is a domain playbook layered on the four modes: it owns the domain intake, rules, and
 output format, then continues into a mode (usually **author**) to build it in Savant. If a request
-matches a row, read that file and follow it.
+matches a row, read that file and follow it. A solution wins over the mode table when both match: an
+Alteryx file plus "build this in Savant" is the Alteryx solution first, which then continues into author.
 
 | Domain | Use when the user wants to… | Read |
 |---|---|---|
 | Finance | Reconcile an account — bank, credit-card, GL-to-subledger, intercompany, balance-sheet; "tie out"; month-end close | `solutions/finance/reconciliation.md` |
+| Alteryx migration | Migrate, convert or port an Alteryx workflow (`.yxmd`, `.yxwz`, `.yxmc`, `.yxzp`) to Savant; explain what an Alteryx workflow does; get a migration plan/checklist; check a migrated flow against Alteryx | `solutions/alteryx/migration.md` |
 
 ## Toolchain
 

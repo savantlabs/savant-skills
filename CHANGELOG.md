@@ -2,6 +2,20 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.1.0 — 2026-09-24
+
+- Savvy can migrate an Alteryx workflow. Give it a `.yxmd`, `.yxwz` or `.yxzp` file and it produces a
+  migration guide — what the workflow does, which Alteryx tools have no Savant equivalent, the
+  decisions that would change a number, a production checklist and a tool-by-tool traceability map —
+  then builds the Savant flow from that plan with every step numbered back to the guide.
+- Profiling local files before a build now reads files that are not UTF-8 instead of failing, says
+  so, and accepts a separate delimiter for each file.
+- `savant.py <group>` and `--help` on any command work without a signed-in session.
+- Creating a CSV dataset can now set the file's encoding (`--charset`, UTF-8 or Windows-1252) and
+  pin a column's type before inference (`--column-type Customer_ID=string`), so Latin-1 files and
+  codes with leading zeros load correctly. The Alteryx inventory suggests the exact command per
+  input file.
+
 ## 1.0.6 — 2026-09-29
 
 - The plugin now shows the Savant icon and links to Savant's privacy policy in the plugin

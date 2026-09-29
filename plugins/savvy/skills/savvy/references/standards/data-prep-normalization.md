@@ -24,6 +24,7 @@ Create stable, typed, business-ready fields after source ingestion so downstream
 
 - Do not redefine source names/types in normalization; that belongs to the source unit's adapter/extraction/parser contract.
 - Do not put raw source fields directly into joins, filters, summaries, or final formulas.
+- Do not apply the default `UPPER(TRIM(TO_TEXT(...)))` key normalization to keys an Alteryx migration guide says Alteryx compared raw; those keys use blank-safe `COALESCE(TO_TEXT(x), "")` and the difference is a recorded P2 decision (see `../../solutions/alteryx/migration.md`).
 - Do not defer data prep to a later stage when the required source field already exists. Move cleanup upstream unless the field is created by a later join, aggregate, pivot, AI/classification step, or branch decision.
 - Do not treat a binary/PDF/image source as tabular without an extraction step.
 - Do not claim live schema correctness from a local sample when no evidence links that sample to the Savant dataset.

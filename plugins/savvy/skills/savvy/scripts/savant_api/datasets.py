@@ -15,6 +15,45 @@ from .models import SavantAppApiError, SavantSessionContext
 
 OPENPYXL_DEPENDENCY = "openpyxl>=3.1,<4"
 
+# Server file-parser charsets (the API enum has exactly these two) -> Python codec for the local
+# fallback reader. Windows-1252 decodes every printable ISO-8859-1 byte identically, so Alteryx
+# code page 28591 (Latin-1) maps to WINDOWS_1252.
+CHARSETS = {"UTF_8": "utf-8-sig", "WINDOWS_1252": "cp1252"}
+# Logical types the server accepts in `overwrittenTypes`.
+LOGICAL_TYPES = {"string", "integer", "number", "boolean", "date", "datetime", "percent", "duration", "json", "array", "object"}
+
+
+def validate_charset(charset: str | None) -> str:
+    value = (charset or "UTF_8").strip().upper().replace("-", "_")
+    if value not in CHARSETS:
+        raise SavantAppApiError(f"unsupported charset {charset!r}; the file parser accepts {sorted(CHARSETS)}. Convert the file first.")
+    return value
+
+
+def validate_overwritten_types(types: dict | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for column, dtype in (types or {}).items():
+        d = str(dtype).strip().lower()
+        if d not in LOGICAL_TYPES:
+            raise SavantAppApiError(f"unknown logical type {dtype!r} for column {column!r}; use one of {sorted(LOGICAL_TYPES)}")
+        out[str(column)] = d
+    return out
+
+
+def parse_column_types(values: list[str] | None) -> dict[str, str]:
+    """Parse repeated ``--column-type Column=type`` flags (a comma list per flag is fine too)."""
+    out: dict[str, str] = {}
+    for raw in values or []:
+        for pair in str(raw).split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if "=" not in pair:
+                raise SavantAppApiError(f"--column-type expects Column=type, got {pair!r}")
+            column, dtype = pair.split("=", 1)
+            out[column.strip()] = dtype.strip()
+    return validate_overwritten_types(out)
+
 
 def _load_openpyxl():
     try:
@@ -54,23 +93,30 @@ def coerce(value, dtype: str):
     return value
 
 
-def parse_csv(path: Path, delimiter: str, sample_rows: int):
-    with open(path, encoding="utf-8-sig", newline="") as f:
+def parse_csv(path: Path, delimiter: str, sample_rows: int, charset: str = "UTF_8",
+              overwritten_types: dict[str, str] | None = None):
+    codec = CHARSETS[validate_charset(charset)]
+    with open(path, encoding=codec, newline="") as f:
         rows = list(csv.reader(f, delimiter=delimiter))
     if not rows:
         raise SavantAppApiError(f"file has no rows: {path}")
     header, body = rows[0], rows[1:]
     cols = list(zip(*body)) if body else [[] for _ in header]
     types = [infer_type(list(c)) for c in cols] if body else ["string"] * len(header)
+    overrides = validate_overwritten_types(overwritten_types)
+    types = [overrides.get(h, t) for h, t in zip(header, types)]
     schema = [{"id": h, "name": h, "dataType": t} for h, t in zip(header, types)]
     data = [[coerce(v, schema[i]["dataType"]) for i, v in enumerate(r)] for r in body[:sample_rows]]
     return header, schema, data
 
 
-def build_create_body(name: str, file_id: str, header, schema, data, delimiter: str, length: int = 0) -> dict:
+def build_create_body(name: str, file_id: str, header, schema, data, delimiter: str, length: int = 0,
+                      charset: str = "UTF_8", overwritten_types: dict[str, str] | None = None) -> dict:
+    charset = validate_charset(charset)
+    overrides = validate_overwritten_types(overwritten_types)
     config = {
-        "fileType": "CSV", "overwrittenTypes": {}, "selected": list(header),
-        "charset": "UTF_8", "catalog": "catalog", "schema": "schema", "table": "file",
+        "fileType": "CSV", "overwrittenTypes": overrides, "selected": list(header),
+        "charset": charset, "catalog": "catalog", "schema": "schema", "table": "file",
         "delimiter": delimiter, "qualifier": '"', "escape": "\\",
         "readAsStored": True, "extractionMethod": "native", "autoAppendNewFields": False,
         "fullSample": {"length": int(length), "schema": schema, "data": data,
@@ -78,10 +124,31 @@ def build_create_body(name: str, file_id: str, header, schema, data, delimiter: 
         "sample": {"schema": schema, "data": data},
         "type": "file", "connector": "csv", "dataFormat": "CSV",
         "fileId": file_id, "tabName": "file",
-        "fileParserProps": {"delimiter": delimiter, "qualifier": '"', "escape": "\\", "charset": "UTF_8"},
+        "fileParserProps": {"delimiter": delimiter, "qualifier": '"', "escape": "\\", "charset": charset},
         "passwordProtected": False,
     }
     return {"name": name, "config": config, "profile": {"schema": schema, "sample": data}}
+
+
+def check_applied_types(source: dict, overwritten_types: dict[str, str] | None) -> list[str]:
+    """Compare the created source's schema with the requested overrides; return warnings."""
+    if not overwritten_types or not isinstance(source, dict):
+        return []
+    fields = None
+    for holder in (source.get("profile"), source.get("config", {}).get("fullSample"), source.get("config", {}).get("sample")):
+        if isinstance(holder, dict) and isinstance(holder.get("schema"), list):
+            fields = holder["schema"]
+            break
+    if fields is None:
+        return [f"could not verify column types on the created dataset (no schema in the response); check {sorted(overwritten_types)} in the app"]
+    actual = {f.get("name"): (f.get("dataType") or "").lower() for f in fields if isinstance(f, dict)}
+    warnings = []
+    for column, wanted in overwritten_types.items():
+        if column not in actual:
+            warnings.append(f"column {column!r} was declared {wanted} but is not in the created dataset")
+        elif actual[column] != wanted:
+            warnings.append(f"column {column!r} was declared {wanted} but the dataset stored it as {actual[column]}")
+    return warnings
 
 
 def _xlsx_type(values) -> str:
@@ -258,8 +325,12 @@ def _dedupe_names_like_server(header, schema):
 
 def create_dataset(context, path: Path, name: str, fmt: str = "auto",
                    delimiter: str = ",", sheet: str | None = None, tab_pattern: str | None = None,
-                   sample_rows: int = 100, skip_rows: int = 0) -> dict:
+                   sample_rows: int = 100, skip_rows: int = 0,
+                   charset: str = "UTF_8", overwritten_types: dict[str, str] | None = None) -> dict:
     """Upload + create a dataset of the given format (auto-detected by extension if 'auto').
+    CSV only: `charset` (UTF_8 / WINDOWS_1252) and `overwritten_types` (column -> logical type) are
+    applied both to the server profiling call and to the stored dataset config, so type inference
+    never sees a code column as a number. Windows-1252 is what to pass for ISO-8859-1 files.
     For Excel: pass `sheet` for a single tab, or `tab_pattern` (e.g. "*" or "2024-*") to combine
     multiple tabs. Returns the created source object (result.id = new dataset id).
 
@@ -269,17 +340,24 @@ def create_dataset(context, path: Path, name: str, fmt: str = "auto",
         fmt = detect_format(path)
     file_id = sources.upload_file_async(context, path, _CONTENT_TYPE.get(fmt, "application/octet-stream"))
     if fmt == "csv":
+        charset = validate_charset(charset)
+        overrides = validate_overwritten_types(overwritten_types)
         # Prefer the server's profile (deduped names, inferred types, ~1000-row sample) so an
         # API-created dataset matches a manual upload; fall back to a local parse if it fails.
         try:
-            sample = sources.sample_uploaded_file(context, file_id, data_format="CSV", delimiter=delimiter)
+            sample = sources.sample_uploaded_file(context, file_id, data_format="CSV", delimiter=delimiter,
+                                                  charset=charset, overwritten_types=overrides)
             header, schema, data, length = _parts_from_server_sample(sample)
+            # belt and braces: the stored schema must carry the declared types even if the
+            # profiler echoed its own inference
+            schema = [{**f, "dataType": overrides.get(f.get("name"), f.get("dataType"))} for f in schema]
         except SavantAppApiError:
-            header, schema, data = parse_csv(path, delimiter, sample_rows)
+            header, schema, data = parse_csv(path, delimiter, sample_rows, charset=charset, overwritten_types=overrides)
             length = 0
             if _has_ci_duplicate_names(header):
                 header, schema = _dedupe_names_like_server(header, schema)
-        body = build_create_body(name, file_id, header, schema, data, delimiter, length=length)
+        body = build_create_body(name, file_id, header, schema, data, delimiter, length=length,
+                                 charset=charset, overwritten_types=overrides)
     elif fmt == "excel":
         visible = _visible_excel_sheets(path)
         if tab_pattern:
@@ -313,7 +391,12 @@ def create_dataset(context, path: Path, name: str, fmt: str = "auto",
         body = build_binary_body(name, file_id, path.name, "PDF", "pdf", "PDF")
     else:
         raise SavantAppApiError(f"unsupported format: {fmt}")
-    return sources.create_source(context, body)
+    source = sources.create_source(context, body)
+    if fmt == "csv" and overwritten_types and isinstance(source, dict):
+        warnings = check_applied_types(source, validate_overwritten_types(overwritten_types))
+        if warnings:
+            source = {**source, "typeWarnings": warnings}
+    return source
 
 
 def create_csv_dataset(context, path: Path, name: str, delimiter: str = ",", sample_rows: int = 100) -> dict:
@@ -325,7 +408,8 @@ def create_datasets_bulk(context, manifest: list[dict], *, existing_json: Path |
     """Create several datasets from one manifest — the deterministic loop the AI should not hand-run.
 
     Manifest items: {"file": <path>, "name": <display name>, and optional "type", "sheet",
-    "tab_pattern", "skip_rows", "delimiter", "sample_rows"}.
+    "tab_pattern", "skip_rows", "delimiter", "sample_rows", "charset" (UTF_8 / WINDOWS_1252),
+    "types" ({column: logical type}, CSV only)}.
 
     Behavior contracts:
     - **Idempotent by name**: an item whose display name already resolves in the workspace is
@@ -364,9 +448,12 @@ def create_datasets_bulk(context, manifest: list[dict], *, existing_json: Path |
                 tab_pattern=item.get("tab_pattern"),
                 sample_rows=int(item.get("sample_rows", 100)),
                 skip_rows=int(item.get("skip_rows", 0)),
+                charset=item.get("charset", "UTF_8"),
+                overwritten_types=item.get("types") or None,
             )
             created.append({"index": i, "name": name, "datasetId": source.get("id"),
-                            "status": source.get("status"), "source": source})
+                            "status": source.get("status"), "source": source,
+                            **({"typeWarnings": source["typeWarnings"]} if source.get("typeWarnings") else {})})
         except Exception as exc:  # noqa: BLE001 — per-item isolation is the contract
             failed.append({"index": i, "name": name, "file": str(file_path), "error": str(exc)})
     return {
@@ -409,6 +496,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tab-pattern", help="Excel multi-tab: glob over sheet names to combine.")
     parser.add_argument("--skip-rows", type=int, default=0, help="Excel: number of leading rows to skip before the header row.")
     parser.add_argument("--delimiter", default=",")
+    parser.add_argument("--charset", default="UTF_8", choices=sorted(CHARSETS),
+                        help="CSV file encoding as the server names it. Use WINDOWS_1252 for ISO-8859-1 / Latin-1 files "
+                             "(Alteryx code page 28591 or 1252). Default UTF_8.")
+    parser.add_argument("--column-type", action="append", metavar="COLUMN=TYPE",
+                        help="CSV: force a column's logical type before inference, e.g. Customer_ID=string keeps leading "
+                             "zeros. Repeatable; a comma-separated list per flag is also accepted. Types: "
+                             + ", ".join(sorted(LOGICAL_TYPES)) + ".")
     parser.add_argument("--sample-rows", type=int, default=100)
     parser.add_argument("--existing-json", type=Path,
                         help="MCP `search` result for types: [\"source\"]. Used by --manifest to skip "
@@ -428,6 +522,8 @@ def main(argv: list[str] | None = None) -> int:
         report = create_datasets_bulk(context, manifest, existing_json=args.existing_json)
         for e in report["created"]:
             print(f"  [ok  ] created '{e['name']}' id={e['datasetId']} status={e.get('status')}")
+            for w in e.get("typeWarnings", []):
+                print(f"         warning: {w}")
         for e in report["skipped"]:
             print(f"  [skip] '{e['name']}' already exists, id={e['datasetId']}")
         for e in report["failed"]:
@@ -448,7 +544,11 @@ def main(argv: list[str] | None = None) -> int:
         tab_pattern=args.tab_pattern,
         sample_rows=args.sample_rows,
         skip_rows=args.skip_rows,
+        charset=args.charset,
+        overwritten_types=parse_column_types(args.column_type) or None,
     )
     print(f"created dataset '{source.get('name')}' id={source.get('id')} status={source.get('status')}")
+    for w in source.get("typeWarnings", []):
+        print(f"warning: {w}")
     save_json(source, Path(args.output_path) if args.output_path else default_output_path(args.name))
     return 0

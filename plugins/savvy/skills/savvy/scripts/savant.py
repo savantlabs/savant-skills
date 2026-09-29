@@ -26,6 +26,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 ROUTES: dict[tuple[str, ...], tuple[str, str]] = {
     ("capabilities",): ("savant_api.capabilities", "Report package capabilities + probe API availability"),
+    ("alteryx", "parse"): ("alteryx.parse", "Inventory an Alteryx workflow package for migration"),
     ("api",): ("savant_api.cli", "Authenticated app API passthrough"),
     ("app",): ("savant_api.cli", "Authenticated app API passthrough"),
     ("dataset", "create"): ("savant_api.datasets", "Create a dataset from a local file"),
@@ -80,6 +81,7 @@ def _usage() -> str:
         [
             "",
             "Examples:",
+            "  savant.py alteryx parse flow.yxmd --markdown flow.inventory.md",
             "  savant.py app --import-json workflow.json --folder-id <folderId>",
             "  savant.py dataset create --file data.csv --name Data",
             "  savant.py dataset discover --workflow-json workflow.json --sources-json sources.json",
@@ -91,11 +93,25 @@ def _usage() -> str:
     return "\n".join(lines)
 
 
+def _group_usage(group: str) -> str:
+    width = max(len(" ".join(route)) for route in ROUTES)
+    lines = [f"usage: savant.py {group} <subcommand> [args...]", "", "Subcommands:"]
+    for route, (_module, description) in sorted(ROUTES.items()):
+        if route[0] == group and len(route) == 2:
+            lines.append(f"  {' '.join(route):<{width}}  {description}")
+    lines += ["", f"Run `savant.py {group} <subcommand> --help` for that subcommand's options."]
+    return "\n".join(lines)
+
+
 def _resolve(argv: list[str]) -> tuple[tuple[str, ...], str, list[str]]:
     for width in (2, 1):
         route = tuple(argv[:width])
         if route in ROUTES:
             return route, ROUTES[route][0], argv[width:]
+    # `savant.py <group>` or `savant.py <group> --help` for a two-word command group
+    if argv and any(r[0] == argv[0] and len(r) == 2 for r in ROUTES) and (len(argv) == 1 or argv[1] in {"-h", "--help", "help"}):
+        print(_group_usage(argv[0]))
+        raise SystemExit(0)
     raise SystemExit(_usage())
 
 
@@ -136,7 +152,8 @@ def _dispatch_once(args: list[str]) -> int:
     """Resolve one command line through the router and run it. Shared by the
     normal one-shot path and the persistent `serve` loop."""
     route, module_name, remaining = _resolve(args)
-    if route in API_REQUIRED_ROUTES:
+    wants_help = any(a in {"-h", "--help"} for a in remaining)
+    if route in API_REQUIRED_ROUTES and not wants_help:
         enabled, capability = _api_enabled()
         if not enabled:
             reason = capability.get("reason") or capability.get("detail") or "API is not available in this package/session."
