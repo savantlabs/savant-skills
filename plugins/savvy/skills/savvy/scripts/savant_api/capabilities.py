@@ -60,8 +60,9 @@ def _live_probe_reason(exc: Exception) -> str:
     text = str(exc)
     if " failed: 401" in text:
         return (
-            "live session probe returned 401: the bridge token is stale. Call the "
-            "`get-api-credentials` MCP tool again to re-mint it, then retry."
+            "live session probe returned 401: the paired session is idle-expired or its grant "
+            "was disconnected. Call the `bind-toolchain` MCP tool again with the pairingHash "
+            "from `savant.py session pair`, then retry."
         )
     if " failed: 403" in text:
         return (
@@ -146,9 +147,10 @@ def detect(probe_live: bool = False) -> dict:
         result["reason"] = reason
     if session != "available":
         result["detail"] = (
-            "The live session probe failed, so a write would fail too. Re-mint credentials with the "
-            "`get-api-credentials` MCP tool and retry; if that does not help, the Savant host is not "
-            "reachable from this environment. Do not start a create or edit until this resolves."
+            "The live session probe failed, so a write would fail too. Re-bind the toolchain: call "
+            "the `bind-toolchain` MCP tool with the pairingHash from `savant.py session pair` and "
+            "retry; if that does not help, the Savant host is not reachable from this environment. "
+            "Do not start a create or edit until this resolves."
             if probe_live
             else "API is supported but no usable session was found. Ask the user to sign in to the "
             "target workspace in Savant, or proceed in manual mode with user-provided dataset ids."

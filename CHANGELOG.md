@@ -2,6 +2,17 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.0.5 — 2026-09-26
+
+- Savvy's local toolchain now signs in with a key it generates on your machine and never shares
+  with the chat. Previously a sign-in token was handed to the assistant over the connection.
+  The assistant now links that key to your conversation instead, so no credential ever appears
+  in the chat.
+- An active session stays signed in on its own; re-linking is only needed after a long idle
+  period or after the connector is reconnected.
+- The plugin's connection is now listed as "Savvy Plugin" instead of "Savvy". You will be asked
+  to sign in to it again once after upgrading.
+
 ## 1.0.4 — 2026-09-11
 
 - Renaming a workflow or editing its description or tags reports what happened. The change was
