@@ -22,6 +22,13 @@ codex plugin install savvy
 
 Both surfaces pull from this repo's `main` branch and connect to the Savant production backend at `savvy.savantlabs.io`.
 
+## Data handling
+
+- **Services contacted.** The plugin talks only to Savant: the MCP server at `savvy.savantlabs.io`, and the Savant app API (`app.savantlabs.io`). The bundled helper scripts use that API to import, save, preview, and inspect workflows.
+- **Data read.** Workflow definitions, and sample rows from your connected Savant systems, which may include personal data held in those systems.
+- **Data stored.** Workflows you create or edit are saved to your Savant workspace until you delete them. The helper scripts keep a session pairing file and preview output in your session temp directory.
+- **Privacy.** See https://savantlabs.io/privacy-policy/.
+
 ## What's Included
 
 ### Savvy Plugin

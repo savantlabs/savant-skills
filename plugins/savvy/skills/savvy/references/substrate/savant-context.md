@@ -123,14 +123,14 @@ If a needed object API is not documented yet, run a narrow discovery probe on a 
 
 ## Session auth and the token-only vs workspace-scoped split
 
-The helper authenticates from the browser profile's localStorage (it sends **no cookies**): the access token comes from the `savant/session` record and is sent as `Authorization: Bearer …`; the workspace context comes from the `savant/tab_session` record and is sent as `X-SAVANT-TAB: <tab_id>`. The server uses that **tab id**, not the URL namespace, to decide which workspace a request runs in.
+The helper authenticates from the session creds file written by `savant.py session bind` after the `bind-toolchain` handshake (see SKILL.md; it sends **no cookies**): the paired token is sent as `Authorization: Bearer …` and the bound `tabId` as `X-SAVANT-TAB: <tab_id>`. The server uses that **tab id**, not the URL namespace, to decide which workspace a request runs in.
 
 Two consequences worth internalizing:
 
 - **Token-only (no tab session needed):** organization list (`/api/sessions/organizations`). It resolves from the token alone — useful even before any workspace has been opened. AI providers are no longer read over the API at all: use MCP `search` with `types: ["ai_provider"]` (see `ai-provider-substrate.md`), which needs a workspace bound but no `api_enabled`.
 - **Workspace-scoped (require a valid tab session):** workspaces, folders, recipes, sources, node analyze, and import/save. Without a tab session for the target workspace these fail or return the wrong/empty result.
 
-The tab id is **durable**: the Savant web app writes the `tab_session` record when a workspace is active, and it persists after the tab is closed. So the real precondition for workspace-scoped work is "this workspace was opened in the browser at least once," not "a tab is open right now." If no session exists for the target workspace, `resolve_folder_url` now returns an actionable error listing the workspaces it can see and telling the user to open the target workspace once (or pass `&rns=<namespace>`).
+The tab id follows the MCP session's active workspace: `bind-toolchain` returns the tab of the workspace the conversation is in, and `switch-workspace` moves it. So the precondition for workspace-scoped work is "the conversation is in the target workspace" — switch there first, then re-run `bind-toolchain` and `session bind` if the returned `tabId` changed. If the target workspace can't be resolved, `resolve_folder_url` returns an actionable error listing the workspaces it can see (or pass `&rns=<namespace>`).
 
 ### How to use these (trigger model)
 

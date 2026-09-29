@@ -2,6 +2,14 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.0.6 — 2026-09-29
+
+- The plugin now shows the Savant icon and links to Savant's privacy policy in the plugin
+  directory.
+- Savvy's local toolchain signs in only through the key it pairs with your conversation. It no
+  longer accepts a sign-in token, or a different location for its sign-in files, from environment
+  variables.
+
 ## 1.0.5 — 2026-09-26
 
 - Savvy's local toolchain now signs in with a key it generates on your machine and never shares
