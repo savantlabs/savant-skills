@@ -68,7 +68,7 @@ A JSON export plus business summary does **not** mean the workflow is verified, 
 
 ## Authentication
 
-This skill calls the Savant web-app API directly, but it never mints its own credentials. The chat client holds the MCP connection and is the only thing that speaks MCP; the `savant.py` shell is a pure API executor that reads its credentials from the environment. The handoff:
+This skill calls the Savant web-app API directly, but it never mints its own credentials. The chat client holds the MCP connection and is the only thing that speaks MCP; the `savant.py` shell is a pure API executor that reads its credentials from the session file it pairs below. The handoff:
 
 1. **Resolve the workspace.** **Prefer the namespace already in the URL** — a flow URL with `?rns=<namespace>` names the owning workspace, so use it directly. Only when there is no `rns` (an rns-less URL or a bare recipe id) call the **`locate`** MCP tool to resolve the owning namespace — pass the recipe's `savant://workflow/{flowId}` URI (the same form `search` returns), **not** a Canvas URL or bare id. If the active session is not already in that namespace, call **`switch-workspace`** (passing the namespace `locate` returns) — or **`switch-folder`** — so the bound session is scoped to the workspace that owns the flow, then read with `fetch`. (If switching to the URL's `rns` doesn't grant access, fall back to `locate` for the true owner.)
 2. **Pair the toolchain.** Run `python3 scripts/savant.py session pair`. It generates a secret on this machine (user-private, OS-reaped temp file) and prints only its `pairingHash`; re-running it in the same session prints the same hash.
