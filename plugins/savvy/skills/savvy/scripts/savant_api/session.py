@@ -18,7 +18,6 @@ from .models import DEFAULT_ORIGIN, FlowUrl, SavantAppApiError, SavantSessionCon
 # keeps it in the pair file below; only the secret's SHA-256 ever crosses the chat client,
 # which hands it to the `bind-toolchain` MCP tool. The server stores the hash and accepts
 # the secret as a session. No credential is ever minted server-side or returned over MCP.
-# `SAVANT_PAIR_FILE` overrides the path.
 PAIR_FILE_NAME = "savant-pair.json"
 PAIR_SECRET_PREFIX = "xmp-"
 # Bytes of entropy behind the secret; hex-encoded to 64 chars. The server refuses paired
@@ -27,7 +26,7 @@ PAIR_SECRET_BYTES = 32
 
 # Creds file under the session tmp dir: { token, tabId, apiBaseUrl, namespace }. Written by
 # `session bind` from the pair file plus the non-secret `bind-toolchain` response; read by
-# every API call in this package. `SAVANT_CREDS_FILE` overrides the path.
+# every API call in this package.
 CREDS_FILE_NAME = "savant-creds.json"
 
 
@@ -136,10 +135,7 @@ def ensure_rns(url: str, namespace: str | None) -> str:
 
 
 def pair_file_path() -> Path:
-    """Resolve the pair-file path: SAVANT_PAIR_FILE if set, else the session tmp dir."""
-    override = os.environ.get("SAVANT_PAIR_FILE")
-    if override:
-        return Path(override).expanduser()
+    """The pair-file path, under the session tmp dir."""
     return workspace_tmp(PAIR_FILE_NAME)
 
 
@@ -273,10 +269,7 @@ def invalidate_session_cache() -> None:
 
 
 def _creds_file_path() -> Path:
-    """Resolve the creds-file path: SAVANT_CREDS_FILE if set, else the session tmp dir."""
-    override = os.environ.get("SAVANT_CREDS_FILE")
-    if override:
-        return Path(override).expanduser()
+    """The creds-file path, under the session tmp dir."""
     return workspace_tmp(CREDS_FILE_NAME)
 
 
