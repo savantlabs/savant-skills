@@ -50,6 +50,8 @@ def sample_uploaded_file(
     skip_rows: int = 0,
     read_as_stored: bool = True,
     delimiter: str = ",",
+    charset: str = "UTF_8",
+    overwritten_types: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Profile a staged upload exactly as the upload wizard's Configure step does, returning the
     server's ``{"schema": [...], "data": [...], "length": int}``.
@@ -68,13 +70,19 @@ def sample_uploaded_file(
     3. The sample is the server's (~1000 rows), matching the preview a UI upload shows, rather
        than an arbitrary locally-truncated slice.
 
+    ``charset`` is the server's file-parser charset (``UTF_8`` or ``WINDOWS_1252``) and
+    ``overwritten_types`` a column-name -> logical-type map the profiler honours *during*
+    inference, so a code column declared ``string`` keeps its leading zeros.
+
     POST /api/upload/files/{fileId}/sample-async -> promise -> result {length, schema, data}."""
     body: dict[str, Any] = {
         "skipRows": int(skip_rows),
         "readAsStored": bool(read_as_stored),
         "dataFormat": data_format,
-        "fileParserProps": {"delimiter": delimiter, "qualifier": '"', "escape": "\\"},
+        "fileParserProps": {"delimiter": delimiter, "qualifier": '"', "escape": "\\", "charset": charset},
     }
+    if overwritten_types:
+        body["overwrittenTypes"] = dict(overwritten_types)
     if tab is not None:
         body["tab"] = tab
     response = request(context, f"/api/upload/files/{file_id}/sample-async", method="POST", body=body)

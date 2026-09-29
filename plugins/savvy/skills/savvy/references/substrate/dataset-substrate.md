@@ -69,6 +69,13 @@ python3 ../scripts/savant.py dataset create --file <local-file> --name "<Dataset
 
 Datasets are workspace-scoped and created in the authenticated session's namespace, so switch to the target workspace first (no folder/URL argument).
 
+CSV options that must be right at creation, because type inference cannot be undone afterwards:
+
+- `--delimiter ';'` when the file is not comma-separated.
+- `--charset WINDOWS_1252` for Latin-1 / ISO-8859-1 / Windows-1252 files (the server accepts only `UTF_8` and `WINDOWS_1252`; other encodings must be converted first). Symptom of the wrong charset: accented names come out as `Ã‰`.
+- `--column-type Customer_ID=string,Postcode=string` to keep codes with leading zeros as text; repeatable. Types: string, integer, number, boolean, date, datetime. The command warns if the stored type differs from what was declared — treat that as unresolved.
+- The same keys work per item in a `--manifest` (`"charset"`, `"types": {"Customer_ID": "string"}`).
+
 - Before creating datasets from a workbook, profile the workbook's sheets and compare their headers to the workflow's expected source schemas. A reconciliation master, support tie-out, summary, or carryforward workpaper is usually an output/review workbook, not the raw source extract package. Do not bind an output workbook as if it were the raw source data; either create minimal validation datasets for runtime smoke testing and say so, or ask for the missing raw extracts.
 - Only from a local file the user provided, of a supported type, and only with the user's explicit approval:
   > I don't see `Service Orders 2026-04-03` in this workspace. I have the file you gave me — create that dataset and bind to it? (Ask once, listing all if several are missing.)

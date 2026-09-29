@@ -226,8 +226,28 @@ def _make_unique_columns(values: list[Any]) -> list[str]:
     return columns
 
 
+CSV_FALLBACK_ENCODING = "cp1252"
+
+
+def _open_text(path: Path) -> tuple[Any, str]:
+    """Open a text file as UTF-8, falling back to cp1252 (a superset of ISO-8859-1) when the
+    bytes are not valid UTF-8. Returns (handle, encoding_used)."""
+    try:
+        with path.open(encoding="utf-8-sig") as probe:
+            probe.read()
+        return path.open(encoding="utf-8-sig", newline=""), "utf-8"
+    except UnicodeDecodeError:
+        return path.open(encoding=CSV_FALLBACK_ENCODING, newline=""), CSV_FALLBACK_ENCODING
+
+
 def _read_csv(path: Path, *, delimiter: str, max_rows: int) -> tuple[list[str], list[list[Any]], bool]:
-    with path.open(encoding="utf-8-sig", newline="") as handle:
+    columns, rows, truncated, _encoding = _read_csv_with_encoding(path, delimiter=delimiter, max_rows=max_rows)
+    return columns, rows, truncated
+
+
+def _read_csv_with_encoding(path: Path, *, delimiter: str, max_rows: int) -> tuple[list[str], list[list[Any]], bool, str]:
+    handle, encoding = _open_text(path)
+    with handle:
         reader = csv.reader(handle, delimiter=delimiter)
         try:
             header = next(reader)
@@ -241,7 +261,7 @@ def _read_csv(path: Path, *, delimiter: str, max_rows: int) -> tuple[list[str], 
                 truncated = True
                 break
             rows.append(_normalize_row(row, len(columns)))
-    return columns, rows, truncated
+    return columns, rows, truncated, encoding
 
 
 def _header_score(row: list[Any], following_rows: list[list[Any]]) -> float:
@@ -896,14 +916,18 @@ def profile_files(
     *,
     sheets: list[str] | None = None,
     hints: list[dict[str, Any]] | None = None,
-    delimiter: str = ",",
+    delimiter: str | list[str] = ",",
     max_rows: int = DEFAULT_SCAN_ROWS,
     sample_limit: int = DEFAULT_SAMPLE_VALUES,
 ) -> dict[str, Any]:
     sources: list[dict[str, Any]] = []
     errors: list[str] = []
+    warnings: list[str] = []
     hints = hints or []
-    for raw_path in files:
+    # One delimiter per --file, in order; the last one given applies to any further files.
+    delimiters = [delimiter] if isinstance(delimiter, str) else (list(delimiter) or [","])
+    for file_index, raw_path in enumerate(files):
+        file_delimiter = delimiters[min(file_index, len(delimiters) - 1)]
         path = raw_path.expanduser().resolve()
         if not path.exists() or not path.is_file():
             errors.append(f"File does not exist: {raw_path}")
@@ -956,8 +980,12 @@ def profile_files(
                         )
                     )
             elif suffix in {".csv", ".tsv", ".txt"}:
-                effective_delimiter = "\t" if suffix == ".tsv" and delimiter == "," else delimiter
-                columns, rows, truncated = _read_csv(path, delimiter=effective_delimiter, max_rows=max_rows)
+                effective_delimiter = "\t" if suffix == ".tsv" and file_delimiter == "," else file_delimiter
+                columns, rows, truncated, encoding = _read_csv_with_encoding(path, delimiter=effective_delimiter, max_rows=max_rows)
+                if encoding != "utf-8":
+                    warnings.append(f"{path.name}: not valid UTF-8; read as {encoding}. Set the Savant dataset charset to match the file (the upload defaults to UTF-8).")
+                if len(columns) == 1 and effective_delimiter not in columns[0] and any(sep in columns[0] for sep in (";", ",", "\t", "|")):
+                    warnings.append(f"{path.name}: only one column parsed with delimiter {effective_delimiter!r}; the header looks like it uses a different separator — pass --delimiter per file, in --file order.")
                 sources.append(
                     _profile_source(
                         source_name=str((file_hints[0] if file_hints else {}).get("sourceName") or (file_hints[0] if file_hints else {}).get("source_name") or path.stem),
@@ -997,6 +1025,7 @@ def profile_files(
         "aiProfileRequests": ai_requests,
         "readyForSourcePlanning": ready_for_source_planning,
         "errors": errors,
+        "warnings": warnings,
         "status": status,
     }
     report["brief"] = brief_report(report)
@@ -1119,7 +1148,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--file", action="append", required=True, type=Path, help="Local CSV/TSV/XLSX/PDF file to profile. Repeatable.")
     parser.add_argument("--sheet", action="append", help="Excel sheet name to profile. Repeatable; applies to Excel files.")
     parser.add_argument("--hints-json", type=Path, help="Optional AI-supplied source/table hints JSON from a prior ambiguous profile.")
-    parser.add_argument("--delimiter", default=",", help="CSV delimiter. Defaults to comma.")
+    parser.add_argument("--delimiter", action="append", help="CSV delimiter. Repeatable, one per --file in order; the last one covers remaining files. Defaults to comma.")
     parser.add_argument("--max-rows", type=int, default=DEFAULT_SCAN_ROWS, help="Maximum data rows to scan per source.")
     parser.add_argument("--sample-values", type=int, default=DEFAULT_SAMPLE_VALUES, help="Distinct sample values per column.")
     parser.add_argument("--output-path", type=Path, help="Where to write the JSON report.")
@@ -1138,7 +1167,7 @@ def main(argv: list[str] | None = None) -> int:
             args.file,
             sheets=args.sheet,
             hints=hints,
-            delimiter=args.delimiter,
+            delimiter=args.delimiter or [","],
             max_rows=args.max_rows,
             sample_limit=args.sample_values,
         )
@@ -1157,6 +1186,10 @@ def main(argv: list[str] | None = None) -> int:
         relationship_count = sum(1 for rel in report["relationships"] if rel.get("suggestedJoins"))
         print(f"Profiled {source_count} source(s); found join candidates for {relationship_count} pair(s).")
         print(f"Wrote source profile to {output}")
+        for warning in report.get("warnings", []):
+            print(f"warning: {warning}", file=sys.stderr)
+        for error in report.get("errors", []):
+            print(f"error: {error}", file=sys.stderr)
         if args.brief_output_path:
             print(f"Wrote source profile brief to {args.brief_output_path}")
     return 0 if report["status"] != "blocked" else 2

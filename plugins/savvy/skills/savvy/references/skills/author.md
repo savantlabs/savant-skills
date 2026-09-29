@@ -25,7 +25,7 @@ The internal commands this skill uses are: `savant.py source profile`, `savant.p
 
 Author tracks its own state in handoff files; the Plan→Build boundary is internal to this one skill, but the validators still gate each phase.
 
-- **`planner_to_builder.handoff.json`** — Author's *internal* state tracker. It records known preferences/facts, answered/remaining questions, the confirmed source and output plans, and the confirmation evidence. The Plan phase fills it and passes the `--role planner` gates; the Build phase reads it and passes the `--role builder` precheck. It is no longer handed between skills — it is how the two phases of this skill agree.
+- **`planner_to_builder.handoff.json`** — Author's *internal* state tracker. It records known preferences/facts, answered/remaining questions, the confirmed source and output plans, and the confirmation evidence. The Plan phase fills it and passes the `--role planner` gates; the Build phase reads it and passes the `--role builder` precheck. It is no longer handed between skills — it is how the two phases of this skill agree. A solution (for example the Alteryx migration) fills it from its own confirmed plan instead of from the Plan-phase questions, but the same gates apply.
 - **`builder_to_creator.handoff.json`** — the **real** inter-skill contract. When the user wants the flow created in Savant, Author writes this handoff (workflow JSON path, optional schema-hints path, required tracking tag, requested scope) and passes it to **applier mode**.
 
 Always use scaffolds; never hand-type the evidence skeleton from memory.

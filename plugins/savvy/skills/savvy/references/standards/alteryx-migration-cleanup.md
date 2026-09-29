@@ -37,7 +37,7 @@ Clean converted Alteryx workflows only when the request or inspection supports i
 
 ## Do Not
 
-- Do not use this for a new workflow from an Alteryx spec.
+- Do not use this for a new workflow from an Alteryx file or spec; that is the Alteryx migration solution (`../../solutions/alteryx/migration.md`).
 - Do not treat detection as permission to edit.
 - Do not silently perform broad cleanup during a narrow edit.
 - Do not remove or simplify anything whose business role is unclear.

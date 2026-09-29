@@ -1,0 +1,289 @@
+{
+  "_comment": "mapping values: exact | equivalent | approximated | unsupported | custom_macro | not_applicable | review. 'p1' text makes the tool a P1 blocker. 'trap' adds a note to the behaviour-difference appendix. Macro patterns are regexes matched against the .yxmc file name.",
+  "tools": {
+    "DbFileInput": {
+      "savant": "Dataset / connected system source (+ Adapter for names and types)",
+      "mapping": "exact",
+      "p1": "Connection or dataset must exist in the target workspace; Savvy cannot create credentialed connections"
+    },
+    "DbFileOutput": {
+      "savant": "Destination (CSV native; OneDrive/Google Drive/Snowflake write-back via connected system)",
+      "mapping": "exact"
+    },
+    "AlteryxSelect": {
+      "savant": "Transform (rename / retype / hide) \u2014 usually folded into a neighbouring Transform",
+      "mapping": "exact"
+    },
+    "Formula": {
+      "savant": "Transform calculated column(s)",
+      "mapping": "exact",
+      "trap": "IF/CASE with computed branches becomes flag * value or COALESCE; integer types truncate"
+    },
+    "MultiRowFormula": {
+      "savant": "Transform window calc (LAG/LEAD/CUM_SUM) partitioned by group, sorted",
+      "mapping": "exact",
+      "trap": "first-row behaviour and integer typing"
+    },
+    "MultiFieldFormula": {
+      "savant": "Transform \u2014 one calculated column per field",
+      "mapping": "equivalent"
+    },
+    "Filter": {
+      "savant": "Filter (wizard or expression); False branch via false path",
+      "mapping": "exact",
+      "trap": "NULL handling on != / <>"
+    },
+    "Summarize": {
+      "savant": "Summarize (group by + aggregations); Count -> COUNT(Row), CountDistinct -> NUNIQUE, First/Last -> deterministic rank",
+      "mapping": "exact"
+    },
+    "Join": {
+      "savant": "Blend (inner/left/right/full); L/J/R outputs via unmatched forks",
+      "mapping": "exact",
+      "trap": "case-sensitive string keys, duplicate-key row explosion"
+    },
+    "JoinMultiple": {
+      "savant": "Chained Blends",
+      "mapping": "equivalent"
+    },
+    "Union": {
+      "savant": "Stack (by name)",
+      "mapping": "exact"
+    },
+    "Unique": {
+      "savant": "Deduplicate on fields (with sort for deterministic survivor)",
+      "mapping": "exact",
+      "trap": "Duplicates output anchor = second and later occurrences only; Savant 'include duplicates' flags all members of a duplicate group"
+    },
+    "Sort": {
+      "savant": "Not a step \u2014 sorting is applied where it matters (window sorts, dedupe sorts, destination sort)",
+      "mapping": "equivalent"
+    },
+    "AppendFields": {
+      "savant": "Blend on a constant key (cartesian) or window MAX/MIN for single-row appends",
+      "mapping": "equivalent"
+    },
+    "CrossTab": {
+      "savant": "Pivot",
+      "mapping": "exact"
+    },
+    "Transpose": {
+      "savant": "Unpivot",
+      "mapping": "exact"
+    },
+    "TextToColumns": {
+      "savant": "Split (rows or columns)",
+      "mapping": "exact"
+    },
+    "RegEx": {
+      "savant": "Transform REGEX_EXTRACT / REGEX_REPLACE / REGEX_MATCH",
+      "mapping": "exact"
+    },
+    "FindReplace": {
+      "savant": "Search and Replace, or Blend + COALESCE for lookup mode",
+      "mapping": "equivalent"
+    },
+    "Sample": {
+      "savant": "Sample (top N per group)",
+      "mapping": "exact"
+    },
+    "RecordID": {
+      "savant": "Transform window ROW_NUM",
+      "mapping": "exact"
+    },
+    "DateTime": {
+      "savant": "Transform TO_DATE / TO_DATETIME / date parts",
+      "mapping": "exact"
+    },
+    "DataCleansing": {
+      "savant": "Transform TRIM / COALESCE per field",
+      "mapping": "exact"
+    },
+    "GenerateRows": {
+      "savant": "Scaffold via Summarize + constant-key Blend, or Split",
+      "mapping": "approximated"
+    },
+    "RunningTotal": {
+      "savant": "Transform window CUM_SUM",
+      "mapping": "exact"
+    },
+    "FuzzyMatch": {
+      "savant": "Fuzzy Match",
+      "mapping": "equivalent"
+    },
+    "DynamicRename": {
+      "savant": "Adapter / Format (header row)",
+      "mapping": "approximated"
+    },
+    "DynamicInput": {
+      "savant": "Parameterised source \u2014 review",
+      "mapping": "approximated"
+    },
+    "DynamicSelect": {
+      "savant": "Transform hide/order \u2014 review",
+      "mapping": "approximated"
+    },
+    "BlockUntilDone": {
+      "savant": "Not needed (Savant orders execution)",
+      "mapping": "not_applicable"
+    },
+    "DownloadData": {
+      "savant": "API Service step",
+      "mapping": "equivalent",
+      "p1": "Endpoint auth must be configured in Savant"
+    },
+    "JSONParse": {
+      "savant": "JSON step (flatten/explode)",
+      "mapping": "exact"
+    },
+    "XMLParse": {
+      "savant": "XML step",
+      "mapping": "exact"
+    },
+    "PythonTool": {
+      "savant": "No code steps \u2014 rebuild logic with native steps or GenAI",
+      "mapping": "unsupported",
+      "p1": "Python tool logic must be re-expressed with native steps"
+    },
+    "RTool": {
+      "savant": "No code steps \u2014 rebuild logic with native steps",
+      "mapping": "unsupported",
+      "p1": "R tool logic must be re-expressed with native steps"
+    },
+    "RunCommand": {
+      "savant": "No shell execution",
+      "mapping": "unsupported",
+      "p1": "Run Command has no Savant equivalent"
+    },
+    "Email": {
+      "savant": "Email destination (attachment)",
+      "mapping": "equivalent"
+    },
+    "BrowseV2": {
+      "savant": "Not needed \u2014 every step has a preview",
+      "mapping": "not_applicable"
+    },
+    "Browse": {
+      "savant": "Not needed \u2014 every step has a preview",
+      "mapping": "not_applicable"
+    },
+    "TextBox": {
+      "savant": "Step / group descriptions (or an app text prompt \u2192 runtime parameter)",
+      "mapping": "not_applicable"
+    },
+    "ToolContainer": {
+      "savant": "Group",
+      "mapping": "not_applicable"
+    },
+    "TextInput": {
+      "savant": "Small uploaded dataset",
+      "mapping": "exact"
+    },
+    "InputData": {
+      "savant": "Dataset source",
+      "mapping": "exact"
+    },
+    "OutputData": {
+      "savant": "Destination",
+      "mapping": "exact"
+    },
+    "TableauOutput": {
+      "savant": "No Tableau publish",
+      "mapping": "unsupported",
+      "p1": "Land the table in Snowflake or a file store and repoint Tableau"
+    },
+    "PublishToTableauServer": {
+      "savant": "No Tableau publish",
+      "mapping": "unsupported",
+      "p1": "Land the table in Snowflake or a file store and repoint Tableau"
+    },
+    "FileBrowse": {
+      "savant": "Analytic-app input: user-selected file becomes the flow's dataset (upload / cloud folder / scheduled drop)",
+      "mapping": "equivalent"
+    },
+    "Tab": {
+      "savant": "Analytic-app UI layout \u2014 no equivalent needed",
+      "mapping": "not_applicable"
+    },
+    "Action": {
+      "savant": "Analytic-app wiring (Update Value) \u2014 becomes the dataset binding or a parameter",
+      "mapping": "not_applicable"
+    },
+    "DropDown": {
+      "savant": "Analytic-app choice \u2192 filter value / parameter; confirm how it is supplied at run time",
+      "mapping": "approximated"
+    },
+    "ListBox": {
+      "savant": "Analytic-app multi-choice \u2192 filter values / parameter",
+      "mapping": "approximated"
+    },
+    "CheckBox": {
+      "savant": "Analytic-app toggle \u2192 branch or parameter",
+      "mapping": "approximated"
+    },
+    "DateTimeNow": {
+      "savant": "TODAY()/NOW() expression",
+      "mapping": "exact"
+    },
+    "Condition": {
+      "savant": "Analytic-app conditional \u2192 Filter / branch",
+      "mapping": "approximated"
+    },
+    "Detour": {
+      "savant": "Analytic-app branch \u2192 Filter",
+      "mapping": "approximated"
+    },
+    "NumericUpDown": {
+      "savant": "Analytic-app number \u2192 parameter",
+      "mapping": "approximated"
+    },
+    "Question": {
+      "savant": "Analytic-app question \u2192 parameter",
+      "mapping": "approximated"
+    }
+  },
+  "macros": {
+    "cleanse": {
+      "savant": "Transform TRIM / COALESCE per field (built-in)",
+      "mapping": "exact",
+      "kind": "standard"
+    },
+    "publishtotableau": {
+      "savant": "No Tableau publish \u2014 land in Snowflake or file store, repoint Tableau",
+      "mapping": "unsupported",
+      "kind": "output",
+      "p1": "Replace Tableau publish with a supported destination and repoint the workbooks"
+    },
+    "tableau": {
+      "savant": "No Tableau publish",
+      "mapping": "unsupported",
+      "kind": "output",
+      "p1": "Replace Tableau publish with a supported destination"
+    },
+    "crosstab|transpose": {
+      "savant": "Pivot / Unpivot",
+      "mapping": "exact",
+      "kind": "standard"
+    },
+    "datetime": {
+      "savant": "Transform date functions",
+      "mapping": "exact",
+      "kind": "standard"
+    },
+    "findreplace|find_replace": {
+      "savant": "Search and Replace / Blend lookup",
+      "mapping": "equivalent",
+      "kind": "standard"
+    },
+    "iterative|batch": {
+      "savant": "Loop \u2014 redesign as scaffold + join or Split/Explode",
+      "mapping": "approximated",
+      "kind": "iterative",
+      "p1": "Iterative/batch macro needs a loop-free redesign"
+    }
+  },
+  "default": {
+    "savant": "Review \u2014 no mapping rule yet",
+    "mapping": "review"
+  }
+}

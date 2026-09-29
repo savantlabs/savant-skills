@@ -25,6 +25,7 @@ A step's label (the node's display `name`) is what a reader scans on the canvas 
 - Keep it short enough to scan under a node; the precise configuration belongs in the description, not the label.
 - A label may trade a little technical precision for understandability — "Keep reasonable matches" beats "Filter on confidence ≥ 0.8".
 - Seed labels from the plan's `business_steps`; do not invent generic names like "Transform 1" or "Step 3".
+- **Migration exception.** When the flow is built from an Alteryx migration guide (`../../solutions/alteryx/migration.md`), the label carries the guide's step number as a prefix — `S4 · Keep one record per building per quarter` — and the description opens with the business action followed by the rule and Alteryx tool ids it replaces, e.g. "(rule R9, Alteryx Formula 49 + Select 41)". The number is the join key between the guide, the flow and the owner conversation; keep it through edits.
 
 ## Group Headers and Descriptions
 
