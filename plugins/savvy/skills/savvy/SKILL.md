@@ -113,7 +113,7 @@ applies to every mode.
 
 Applier and inspect call the Savant web-app API directly but never mint their own credentials. The
 chat client holds the MCP connection; the `savant.py` shell is a pure API executor that reads its
-credentials from the environment. The handshake:
+credentials from the session file it pairs below. The handshake:
 
 1. **Resolve the workspace.** **Prefer the namespace already in the URL** — a flow URL with `?rns=<namespace>` names the owning workspace, so use it directly. Only when there is no `rns` (a bare recipe id, an rns-less URL) — or, for a create, to resolve the destination folder — call the **`locate`** MCP tool to find the owning namespace. `locate` takes the entity's `savant://{type}/{id}` URI (the same form `search` returns) — **not** a Canvas URL or bare id; from a flow URL, extract the id after `/flow/` and pass `savant://workflow/{id}`. Either way, if the active session isn't in that namespace, call **`switch-workspace`** (passing the namespace `locate` returns) — or **`switch-folder`** — so the bound session is scoped correctly, then read the entity with `fetch`. (If switching to the URL's `rns` doesn't grant access, fall back to `locate` for the true owner.) For an entity already in the current workspace, skip `locate` and just use `search`/`fetch` — `locate` is only for cross-workspace targets.
 2. **Pair the toolchain.** Run `python3 scripts/savant.py session pair`. It generates a secret on this machine (kept in a user-private, OS-reaped temp file) and prints only its `pairingHash`. Re-running it in the same session prints the same hash.

@@ -280,31 +280,8 @@ def _creds_file_path() -> Path:
     return workspace_tmp(CREDS_FILE_NAME)
 
 
-def _env_creds() -> dict[str, Any] | None:
-    """Build creds from the environment — an override for tests and manual runs.
-
-    Set SAVANT_API_TOKEN + SAVANT_API_TAB + SAVANT_API_BASE_URL (and optionally
-    SAVANT_API_NAMESPACE). Returns None when they aren't all set, so the caller
-    falls back to the creds file written by `session bind` (the normal path)."""
-    token = os.environ.get("SAVANT_API_TOKEN")
-    tab_id = os.environ.get("SAVANT_API_TAB")
-    base_url = os.environ.get("SAVANT_API_BASE_URL")
-    if token and tab_id and base_url:
-        return {
-            "token": token,
-            "tabId": tab_id,
-            "apiBaseUrl": base_url,
-            "namespace": os.environ.get("SAVANT_API_NAMESPACE"),
-        }
-    return None
-
-
 def _read_creds() -> dict[str, Any]:
-    """Return the creds dict from env vars or the creds file. Raises if neither is usable."""
-    env_creds = _env_creds()
-    if env_creds is not None:
-        return env_creds
-
+    """Return the creds dict from the creds file written by `session bind`. Raises if unusable."""
     path = _creds_file_path()
     cache_key = str(path)
     if _session_cache_enabled() and cache_key in _CREDS_CACHE:
