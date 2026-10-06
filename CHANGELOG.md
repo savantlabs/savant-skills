@@ -2,6 +2,10 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.1.1 — 2026-10-06
+
+- The plugin's connection is now listed as "Savant V1".
+
 ## 1.1.0 — 2026-09-24
 
 - Savvy can migrate an Alteryx workflow. Give it a `.yxmd`, `.yxwz` or `.yxzp` file and it produces a

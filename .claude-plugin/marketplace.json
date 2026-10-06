@@ -4,7 +4,7 @@
     "name": "Savant"
   },
   "description": "Official Savant marketplace for AI skills and plugins. Connect your AI agent to Savant to describe, build, and inspect data workflows in natural language.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "metadata": {
     "pluginRoot": "./plugins"
   },
@@ -12,7 +12,7 @@
     {
       "name": "savvy",
       "source": "./plugins/savvy",
-      "description": "Savvy — describe, build, and inspect Savant data workflows in natural language."
+      "description": "Savvy — turn a finance process described in plain language into an audit-ready workflow on Savant, built, documented and verified against your data."
     }
   ]
 }
