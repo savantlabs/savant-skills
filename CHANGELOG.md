@@ -2,6 +2,12 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.1.2 — 2026-10-16
+
+- Savvy's Adapter guidance now matches how required fields work: a required field is always in
+  the Adapter's output, and when the source column is missing it comes out empty and the run
+  keeps going. It does not reject the file.
+
 ## 1.1.1 — 2026-10-06
 
 - The plugin's connection is now listed as "Savant V1".

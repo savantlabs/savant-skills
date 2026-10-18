@@ -38,5 +38,5 @@ Config edits use the shared regenerate-and-merge path — see `../standards/work
 - **Adapter does not change row count; it reshapes the schema.** Output columns are the `specs[]` fields (plus unmapped source columns when `passthroughUnmapped: true`). If downstream steps can't find expected fields, check the Adapter mapping before the later transforms.
 - **Adapter is schema normalization, not a formula tool.** It maps headers and types. Calculations belong in Transform.
 - **Dropping unmapped fields can break later steps.** With `passthroughUnmapped: false`, any source field not listed in `specs[]` disappears.
-- **Required fields are business rules.** Do not mark a field required just because it is convenient downstream. Required should mean the incoming file is invalid without that mapping.
+- **Required does not reject a file.** Every spec is in the output, and a source column missing at run time comes out as nulls whether or not the spec is required; `required` is not checked at run time, so the run does not fail. Do not mark a field required just because it is convenient downstream.
 - **Display names matter.** `mappedFrom` uses the upstream display header. If the source header changes from `First Name` to `first_name`, the mapping must change too.
