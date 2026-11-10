@@ -2,6 +2,11 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.1.4 — 2026-11-10
+
+- Packaging only: the listing images added in 1.1.3 are no longer part of the plugin. Savvy
+  behaves the same as in 1.1.3.
+
 ## 1.1.3 — 2026-11-09
 
 - Savvy can plan recurring finance workpapers beyond reconciliations, such as rollforwards,
