@@ -2,6 +2,15 @@
 
 User-facing changes to the Savvy plugin, newest first. This file covers the 1.x release line.
 
+## 1.1.3 — 2026-11-09
+
+- Savvy can plan recurring finance workpapers beyond reconciliations, such as rollforwards,
+  accruals, tax schedules and variance analyses, starting from Savant's finance knowledge for
+  that workpaper. The knowledge is read from your Savant connection, so newly covered workpapers
+  appear without a plugin update.
+- For these workpapers Savvy asks at most three questions, fills in the rest as assumptions
+  listed in the plan, and lets you correct them when you approve it.
+
 ## 1.1.2 — 2026-10-16
 
 - Savvy's Adapter guidance now matches how required fields work: a required field is always in
