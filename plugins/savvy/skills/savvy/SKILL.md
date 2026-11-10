@@ -95,7 +95,6 @@ Alteryx file plus "build this in Savant" is the Alteryx solution first, which th
 | Domain | Use when the user wants to… | Read |
 |---|---|---|
 | Finance | Reconcile an account — bank, credit-card, GL-to-subledger, intercompany, balance-sheet; "tie out"; month-end close | `solutions/finance/reconciliation.md` |
-| Finance | Document or build another recurring finance workpaper — a rollforward, accrual, tax schedule, consolidation, variance or flux analysis, or a review a preparer signs | `solutions/finance/workpapers.md` |
 | Alteryx migration | Migrate, convert or port an Alteryx workflow (`.yxmd`, `.yxwz`, `.yxmc`, `.yxzp`) to Savant; explain what an Alteryx workflow does; get a migration plan/checklist; check a migrated flow against Alteryx | `solutions/alteryx/migration.md` |
 
 ## Toolchain

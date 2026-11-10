@@ -231,20 +231,6 @@ planning so the confirmed process can become a Savant workflow.
 
 **Details:** `../solutions/finance/reconciliation.md`.
 
-### Plan recurring finance workpapers
-
-**Supported:** Yes, where the connector serves Savant's finance knowledge.
-
-Beyond reconciliations, Savvy can plan a recurring finance workpaper, such as a rollforward, an
-accrual, a tax schedule, a consolidation, or a variance analysis, starting from Savant's finance
-knowledge for that workpaper: what it proves, its inputs, standard controls, exception types and
-outputs. Savant updates this knowledge between plugin releases, so the set of workpapers covered
-is read live and is not listed here. Company-specific values are starting guesses the user
-confirms, and the knowledge is common practice, not accounting or tax advice. A process with no
-matching knowledge is planned from the user's description as usual.
-
-**Details:** `../solutions/finance/workpapers.md`.
-
 ### Diagnose and clean up Alteryx-converted workflows
 
 **Supported:** Yes, with confirmation and verification.
