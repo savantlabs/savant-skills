@@ -1,11 +1,28 @@
 {
   "name": "savvy",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "description": "Savvy — turn a finance process described in plain language into an audit-ready workflow on Savant, built, documented and verified against your data.",
   "author": {
     "name": "Savant"
   },
   "homepage": "https://www.savantlabs.io",
   "mcpServers": "./.mcp.json",
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Savvy",
+    "shortDescription": "Savant for Finance AI",
+    "longDescription": "Savvy is the Savant copilot for ChatGPT and Codex. Savant is the AI automation platform for modern finance, automating manual data work across tax and accounting processes with SOX compliance built in.\n\nChatGPT reasons. Savant executes and governs. Savvy connects the two, turning a conversation about a finance process into an audit-ready workflow agent running on Savant's AI control layer: a deterministic processing engine that returns the same result every cycle, human-in-the-loop review at the points that need judgment, your institutional process knowledge captured as reusable context, and governance and SOX controls that produce a full audit trail on every run.\n\nDescribe a process in plain language and Savvy plans it with you, builds it in Savant, documents it, and verifies it against your data – ready to run identically every close.",
+    "developerName": "Savant Labs",
+    "category": "Finance",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Create an agent to reconcile intercompany balances across entities and flag exceptions.",
+      "Run the Trial Balance agent and show me the exceptions that need review.",
+      "Walk me through the Tax Apportionment agent and suggest improvements."
+    ],
+    "websiteURL": "https://www.savantlabs.io",
+    "supportURL": "https://help.savantlabs.io/en/articles/9967033-contact-us",
+    "privacyPolicyURL": "https://savantlabs.io/dpa",
+    "termsOfServiceURL": "https://savantlabs.io/eula"
+  }
 }
